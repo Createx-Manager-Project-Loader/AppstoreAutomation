@@ -14,9 +14,6 @@ run_mode: "whats_new"
 # Workbook may include optional Subs/Subscription tab (multi-column: Подписка row + product ids in B/E/H…).
 google_sheet_url: ""
 
-# App Store Connect subscription product id (leave empty to use the only subscription found).
-subscription_product_id:
-
 # Google Drive ZIP URL for screenshots (leave empty to skip screenshots).
 # Override per run via Actions → screenshots_zip_url input.
 screenshots_zip_url: ""

@@ -21,7 +21,6 @@ SUBSCRIPTION_LIMITS = {
 }
 
 sys.path.insert(0, str(SCRIPT_DIR))
-from prepare_metadata import get_subscription_product_id  # noqa: E402
 from upload_screenshots_api import (  # noqa: E402
     AppStoreConnectClient,
     AppStoreConnectError,
@@ -107,7 +106,7 @@ def find_subscription(client: AppStoreConnectClient, app_id: str, product_id: st
 
     product_ids = ", ".join(sorted(match["product_id"] for match in matches if match["product_id"]))
     raise AppStoreConnectError(
-        "Multiple subscriptions found. Set subscription_product_id in config.yaml. "
+        "Multiple subscriptions found. Add product ids on the Subs sheet (Подписка row). "
         f"Available product ids: {product_ids}"
     )
 
@@ -241,27 +240,9 @@ def main() -> int:
         merge_section("subscriptions", {"skipped": True, "reason": "no_prepared_data"})
         return 0
 
-    config_product_id = get_subscription_product_id()
-    if config_product_id:
-        prepared_products = [
-            item
-            for item in prepared_products
-            if not item["product_id"] or item["product_id"] == config_product_id
-        ]
-        if not prepared_products:
-            print(
-                f"No prepared subscription data for product id '{config_product_id}'. "
-                "Skipping subscription upload."
-            )
-            merge_section(
-                "subscriptions",
-                {"skipped": True, "reason": "no_matching_product", "product_id": config_product_id},
-            )
-            return 0
-
     validation_errors = []
     for item in prepared_products:
-        product_id = item["product_id"] or config_product_id
+        product_id = item["product_id"]
         prefix = product_id or "subscription"
         for locale, row in item["locales"].items():
             validation_errors.extend(
@@ -289,11 +270,10 @@ def main() -> int:
     product_labels = []
 
     for item in prepared_products:
-        product_id = item["product_id"] or config_product_id
+        product_id = item["product_id"]
         if not product_id and len(prepared_products) > 1:
             raise AppStoreConnectError(
-                "Multiple subscriptions in prepared data. Set subscription_product_id in config.yaml "
-                "or add product ids on the Subs sheet (Подписка row)."
+                "Multiple subscriptions in prepared data. Add product ids on the Subs sheet (Подписка row)."
             )
         label, item_total, item_created, item_updated, item_skipped = upload_product_localizations(
             client,

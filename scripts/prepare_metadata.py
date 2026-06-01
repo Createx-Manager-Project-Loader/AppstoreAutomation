@@ -114,7 +114,6 @@ def _normalize_config(raw: dict) -> dict[str, str]:
         "GOOGLE_SHEET_URL": pick("GOOGLE_SHEET_URL", "google_sheet_url"),
         "SCREENSHOTS_ZIP_URL": pick("SCREENSHOTS_ZIP_URL", "screenshots_zip_url"),
         "RELEASE_NOTES": pick("RELEASE_NOTES", "release_notes"),
-        "SUBSCRIPTION_PRODUCT_ID": pick("SUBSCRIPTION_PRODUCT_ID", "subscription_product_id"),
     }
 
 
@@ -199,15 +198,6 @@ def google_sheet_url_source() -> str:
     if USER_CONFIG.get("GOOGLE_SHEET_URL", "").strip():
         return "config"
     return "none"
-
-
-def get_subscription_product_id() -> str:
-    import os
-
-    env_value = os.environ.get("SUBSCRIPTION_PRODUCT_ID", "").strip()
-    if env_value:
-        return env_value
-    return USER_CONFIG.get("SUBSCRIPTION_PRODUCT_ID", "").strip()
 
 
 def screenshots_zip_url_source() -> str:

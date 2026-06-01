@@ -281,8 +281,6 @@ def print_final_report() -> int:
             reason = subscriptions.get("reason", "")
             if reason == "no_prepared_data":
                 lines.append("  Skipped (no Subs/Subscription sheet in workbook)")
-            elif reason == "no_matching_product":
-                lines.append("  Skipped (no prepared data for configured subscription_product_id)")
             elif reason == "run_subscriptions_false":
                 lines.append("  Skipped (RUN_SUBSCRIPTIONS=false)")
             else:

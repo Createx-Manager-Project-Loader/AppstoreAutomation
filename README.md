@@ -24,7 +24,6 @@ Copy `config.example.yaml` to `automation-config.yaml` in the **app repo root** 
 - `google_sheet_url` — ASO Google Sheet URL
 - `screenshots_zip_url` — Google Drive ZIP with screenshots
 - `release_notes` — fallback What's New text
-- `subscription_product_id` — optional subscription product id
 
 Environment overrides (set in GitHub Actions workflow):
 
