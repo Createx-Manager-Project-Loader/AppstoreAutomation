@@ -1,0 +1,72 @@
+default_platform(:ios)
+
+def repo_root
+  File.expand_path("../..", __dir__)
+end
+
+def prepared_dir
+  ENV.fetch("AUTOMATION_PREPARED_DIR") { File.join(repo_root, "automation-prepared") }
+end
+
+platform :ios do
+  def app_store_api_key
+    app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_filepath: ENV.fetch("ASC_KEY_PATH")
+    )
+  end
+
+  desc "Update What's New text in App Store Connect"
+  lane :update_whats_new do
+    deliver(
+      api_key: app_store_api_key,
+      app_identifier: ENV.fetch("APP_IDENTIFIER"),
+      metadata_path: File.join(repo_root, "metadata"),
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_app_version_update: true,
+      submit_for_review: false,
+      individual_metadata_items: ["release_notes", "support_url", "marketing_url"],
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
+      force: true
+    )
+  end
+
+  desc "Upload App Store Connect metadata and screenshots"
+  lane :upload_metadata do
+    deliver(
+      api_key: app_store_api_key,
+      app_identifier: ENV.fetch("APP_IDENTIFIER"),
+      metadata_path: File.join(prepared_dir, "metadata"),
+      screenshots_path: File.join(prepared_dir, "screenshots"),
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_app_version_update: true,
+      submit_for_review: false,
+      overwrite_screenshots: true,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
+      individual_metadata_items: ENV.fetch("ASC_METADATA_ITEMS", "name,subtitle,keywords,description,release_notes").split(","),
+      force: true
+    )
+  end
+
+  desc "Upload app name and subtitle for one locale"
+  lane :upload_app_info_for_locale do
+    deliver(
+      api_key: app_store_api_key,
+      app_identifier: ENV.fetch("APP_IDENTIFIER"),
+      metadata_path: ENV.fetch("METADATA_PATH"),
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_app_version_update: true,
+      submit_for_review: false,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
+      individual_metadata_items: ["name", "subtitle"],
+      force: true
+    )
+  end
+end

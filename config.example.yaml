@@ -1,0 +1,26 @@
+# Copy to automation-config.yaml in your app repository root (not committed to this repo).
+# Updated automatically after a successful GitHub Actions "Run workflow" (non-empty inputs).
+# To refresh Run workflow form defaults manually:
+#   python3 automation/scripts/sync_workflow_defaults.py
+# Local App Store Connect keys: create account.env in the app repo root (not committed to git).
+
+# screenshots | aso | whats_new | all
+run_mode: "whats_new"
+
+# Google Sheet / Drive file URL (leave empty to skip ASO).
+# Private files: share each file (or parent folder) with the service account Viewer;
+# set GitHub secret GOOGLE_SERVICE_ACCOUNT_JSON (or GOOGLE_APPLICATION_CREDENTIALS locally).
+# Override per run via Actions → google_sheet_url input.
+# Workbook may include optional Subs/Subscription tab (multi-column: Подписка row + product ids in B/E/H…).
+google_sheet_url: ""
+
+# App Store Connect subscription product id (leave empty to use the only subscription found).
+subscription_product_id:
+
+# Google Drive ZIP URL for screenshots (leave empty to skip screenshots).
+# Override per run via Actions → screenshots_zip_url input.
+screenshots_zip_url: ""
+
+# Fallback What's New: used only when a locale has no text in the released App Store version
+# and no text in the base locale (en-US). Override per run via Actions → release_notes input.
+release_notes: "GENERAL IMPROVEMENTS"

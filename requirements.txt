@@ -1,0 +1,6 @@
+PyJWT[crypto]
+PyYAML
+requests
+urllib3<2
+google-auth
+google-api-python-client
