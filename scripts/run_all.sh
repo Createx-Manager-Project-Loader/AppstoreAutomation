@@ -56,8 +56,8 @@ PY
 
 source_mode_label() {
   case "$MODE" in
-    screenshots) echo "screenshots only" ;;
-    aso) echo "ASO only" ;;
+    screenshots) echo "screenshots and What's New" ;;
+    aso) echo "ASO and What's New" ;;
     whats_new) echo "What's New only" ;;
     all) echo "all enabled steps (ASO and/or screenshots and What's New)" ;;
     *) echo "$MODE" ;;
@@ -162,11 +162,7 @@ if [[ "$RUN_WHATS_NEW" == "true" ]]; then
   bash "$SCRIPT_DIR/ensure_whats_new_locales.sh"
   bash "$SCRIPT_DIR/upload_whats_new.sh"
 else
-  if [[ "$RUN_METADATA" == "true" ]]; then
-    echo "Skipping dedicated What's New upload (RUN_WHATS_NEW=false; release_notes is uploaded with metadata when RUN_METADATA=true)."
-  else
-    echo "Skipping What's New upload (RUN_WHATS_NEW=false for RUN_MODE=$MODE)."
-  fi
+  echo "Skipping What's New upload (RUN_WHATS_NEW=false for RUN_MODE=$MODE)."
   report_merge whats_new skipped=true reason=run_whats_new_false
 fi
 

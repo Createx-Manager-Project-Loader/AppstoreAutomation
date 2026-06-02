@@ -267,6 +267,7 @@ def resolve_run_plan():
             raise SystemExit("RUN_MODE=screenshots requires screenshots_zip_url in config.yaml")
         plan["prepare_screenshots"] = True
         plan["run_screenshots"] = True
+        plan["run_whats_new"] = True
         return plan
 
     if mode == "aso":
@@ -276,6 +277,7 @@ def resolve_run_plan():
         plan["run_metadata"] = True
         plan["run_app_info"] = True
         plan["run_subscriptions"] = True
+        plan["run_whats_new"] = True
         return plan
 
     if mode == "all":
