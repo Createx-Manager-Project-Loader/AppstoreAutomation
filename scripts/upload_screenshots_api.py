@@ -281,12 +281,185 @@ def find_app(client: AppStoreConnectClient, bundle_id: str) -> dict[str, Any]:
     return apps[0]
 
 
-def find_editable_version(client: AppStoreConnectClient, app_id: str) -> dict[str, Any]:
+def version_sort_key(version_string: str) -> list[Any]:
+    parts = []
+    for part in version_string.strip().split("."):
+        try:
+            parts.append((0, int(part)))
+        except ValueError:
+            parts.append((1, part))
+    return parts
+
+
+def list_ios_app_store_versions(client: AppStoreConnectClient, app_id: str) -> list[dict[str, Any]]:
     requested_version = os.environ.get("ASC_APP_STORE_VERSION") or os.environ.get("APP_STORE_VERSION")
-    path = f"/apps/{app_id}/appStoreVersions?filter[platform]=IOS&fields[appStoreVersions]=platform,versionString,appStoreState"
+    path = (
+        f"/apps/{app_id}/appStoreVersions?filter[platform]=IOS"
+        "&fields[appStoreVersions]=platform,versionString,appStoreState"
+    )
     if requested_version:
         path += f"&filter[versionString]={requested_version}"
-    versions = client.get_all(path)
+    return client.get_all(path)
+
+
+def bump_minor_version_string(version_string: str) -> str:
+    version_string = version_string.strip()
+    if not version_string:
+        raise AppStoreConnectError("Empty version string")
+    parts = version_string.split(".")
+    if not all(part.isdigit() for part in parts):
+        raise AppStoreConnectError(f"Cannot auto-bump non-numeric version '{version_string}'")
+    if len(parts) == 1:
+        return f"{parts[0]}.1"
+    minor_index = 1
+    parts[minor_index] = str(int(parts[minor_index]) + 1)
+    for index in range(minor_index + 1, len(parts)):
+        parts[index] = "0"
+    return ".".join(parts)
+
+
+def choose_next_version_string(existing_versions: list[dict[str, Any]]) -> str:
+    version_strings = [
+        str(version.get("attributes", {}).get("versionString", "")).strip()
+        for version in existing_versions
+    ]
+    version_strings = [value for value in version_strings if value]
+    if not version_strings:
+        return "1.0"
+
+    latest = max(version_strings, key=version_sort_key)
+    used = set(version_strings)
+    candidate = bump_minor_version_string(latest)
+    for _ in range(50):
+        if candidate not in used:
+            return candidate
+        candidate = bump_minor_version_string(candidate)
+    raise AppStoreConnectError(f"Could not find unused version string after '{latest}'")
+
+
+def create_app_store_version(client: AppStoreConnectClient, app_id: str, version_string: str) -> dict[str, Any]:
+    response = client.request(
+        "POST",
+        "/appStoreVersions",
+        json={
+            "data": {
+                "type": "appStoreVersions",
+                "attributes": {
+                    "platform": "IOS",
+                    "versionString": version_string,
+                },
+                "relationships": {
+                    "app": {
+                        "data": {
+                            "type": "apps",
+                            "id": app_id,
+                        }
+                    }
+                },
+            }
+        },
+    )
+    return response["data"]
+
+
+def list_version_localization_locales(client: AppStoreConnectClient, version_id: str) -> list[str]:
+    localizations = client.get_all(
+        f"/appStoreVersions/{version_id}/appStoreVersionLocalizations"
+        "?fields[appStoreVersionLocalizations]=locale"
+    )
+    locales = []
+    for localization in localizations:
+        locale = str(localization.get("attributes", {}).get("locale", "")).strip()
+        if locale:
+            locales.append(locale)
+    return locales
+
+
+def create_version_localization(client: AppStoreConnectClient, version_id: str, locale: str) -> dict[str, Any]:
+    response = client.request(
+        "POST",
+        "/appStoreVersionLocalizations",
+        json={
+            "data": {
+                "type": "appStoreVersionLocalizations",
+                "attributes": {"locale": locale},
+                "relationships": {
+                    "appStoreVersion": {
+                        "data": {
+                            "type": "appStoreVersions",
+                            "id": version_id,
+                        }
+                    }
+                },
+            }
+        },
+    )
+    return response["data"]
+
+
+def seed_version_localizations(
+    client: AppStoreConnectClient,
+    source_version_id: str,
+    target_version_id: str,
+) -> int:
+    source_locales = list_version_localization_locales(client, source_version_id)
+    target_locales = set(list_version_localization_locales(client, target_version_id))
+    created = 0
+    for locale in source_locales:
+        if locale in target_locales:
+            continue
+        create_version_localization(client, target_version_id, locale)
+        target_locales.add(locale)
+        created += 1
+    return created
+
+
+def find_best_seed_version(existing_versions: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    if not existing_versions:
+        return None
+    released = [
+        version
+        for version in existing_versions
+        if version.get("attributes", {}).get("appStoreState") == "READY_FOR_SALE"
+    ]
+    pool = released if released else existing_versions
+    return max(
+        pool,
+        key=lambda version: version_sort_key(str(version.get("attributes", {}).get("versionString", ""))),
+    )
+
+
+def ensure_editable_app_store_version(client: AppStoreConnectClient, app_id: str, *, auto_create: bool = True) -> dict[str, Any]:
+    try:
+        return find_editable_version(client, app_id)
+    except AppStoreConnectError as error:
+        if not auto_create or "No editable iOS app store version found" not in str(error):
+            raise
+
+    existing_versions = list_ios_app_store_versions(client, app_id)
+    next_version_string = choose_next_version_string(existing_versions)
+    print(
+        "No editable App Store version found. "
+        f"Creating iOS version {next_version_string}..."
+    )
+    created_version = create_app_store_version(client, app_id, next_version_string)
+    created_version_id = created_version["id"]
+
+    seed_version = find_best_seed_version(existing_versions)
+    if seed_version:
+        seed_attrs = seed_version.get("attributes", {})
+        seeded_count = seed_version_localizations(client, seed_version["id"], created_version_id)
+        print(
+            "Seeded "
+            f"{seeded_count} localization(s) from version "
+            f"{seed_attrs.get('versionString')} ({seed_attrs.get('appStoreState')})."
+        )
+
+    return find_editable_version(client, app_id)
+
+
+def find_editable_version(client: AppStoreConnectClient, app_id: str) -> dict[str, Any]:
+    versions = list_ios_app_store_versions(client, app_id)
     editable_versions = [
         version for version in versions if version.get("attributes", {}).get("appStoreState") in EDITABLE_STATES
     ]

@@ -84,6 +84,9 @@ run_whats_new_only() {
   echo "Step 1/2: Validating What's New inputs..."
   bash "$SCRIPT_DIR/validate_metadata.sh"
 
+  echo "Ensuring editable App Store version exists..."
+  bash "$SCRIPT_DIR/ensure_editable_app_store_version.sh"
+
   echo "Step 2/2: Uploading What's New..."
   bash "$SCRIPT_DIR/upload_whats_new.sh"
 }
@@ -115,6 +118,11 @@ fi
 
 run_step "Validating inputs..."
 bash "$SCRIPT_DIR/validate_metadata.sh"
+
+if [[ "$RUN_METADATA" == "true" || "$RUN_WHATS_NEW" == "true" || "$RUN_SCREENSHOTS" == "true" || "$RUN_APP_INFO" == "true" ]]; then
+  echo "Ensuring editable App Store version exists..."
+  bash "$SCRIPT_DIR/ensure_editable_app_store_version.sh"
+fi
 
 if [[ "$RUN_METADATA" == "true" ]]; then
   run_step "Uploading metadata: subtitle, keywords, description, release notes..."
