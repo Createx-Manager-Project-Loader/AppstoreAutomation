@@ -67,28 +67,9 @@ source_mode_label() {
 echo "RUN_MODE=$MODE ($(source_mode_label))"
 
 run_whats_new_only() {
-  source "$SCRIPT_DIR/load_account_config.sh"
-
-  metadata_locale_count=0
-  for locale_dir in "$METADATA_DIR"/*; do
-    [[ -d "$locale_dir" ]] || continue
-    locale="$(basename "$locale_dir")"
-    [[ "$locale" =~ ^[a-z]{2}(-[A-Za-z]{2,4})?$ ]] || continue
-    metadata_locale_count=$((metadata_locale_count + 1))
-  done
-
-  if [[ "$metadata_locale_count" -eq 0 ]]; then
-    bash "$SCRIPT_DIR/ensure_whats_new_locales.sh"
-  fi
-
-  echo "Step 1/2: Validating What's New inputs..."
-  bash "$SCRIPT_DIR/validate_metadata.sh"
-
-  echo "Ensuring editable App Store version exists..."
-  bash "$SCRIPT_DIR/ensure_editable_app_store_version.sh"
-
-  echo "Step 2/2: Uploading What's New..."
-  bash "$SCRIPT_DIR/upload_whats_new.sh"
+  echo "Step 1/2: Preparing What's New upload..."
+  bash "$SCRIPT_DIR/run_whats_new_pipeline.sh"
+  echo "Step 2/2: What's New upload finished."
 }
 
 if [[ "$MODE" == "whats_new" ]]; then
@@ -125,7 +106,11 @@ if [[ "$RUN_METADATA" == "true" || "$RUN_WHATS_NEW" == "true" || "$RUN_SCREENSHO
 fi
 
 if [[ "$RUN_METADATA" == "true" ]]; then
-  run_step "Uploading metadata: subtitle, keywords, description, release notes..."
+  if [[ "$RUN_WHATS_NEW" == "true" ]]; then
+    run_step "Uploading metadata: subtitle, keywords, description..."
+  else
+    run_step "Uploading metadata: subtitle, keywords, description, release notes..."
+  fi
   SKIP_PREPARE=true bash "$SCRIPT_DIR/upload_metadata.sh"
 else
   echo "Skipping metadata upload (RUN_METADATA=false for RUN_MODE=$MODE)."
@@ -158,9 +143,7 @@ fi
 
 if [[ "$RUN_WHATS_NEW" == "true" ]]; then
   run_step "Uploading What's New..."
-  source "$SCRIPT_DIR/load_account_config.sh"
-  bash "$SCRIPT_DIR/ensure_whats_new_locales.sh"
-  bash "$SCRIPT_DIR/upload_whats_new.sh"
+  bash "$SCRIPT_DIR/run_whats_new_pipeline.sh"
 else
   echo "Skipping What's New upload (RUN_WHATS_NEW=false for RUN_MODE=$MODE)."
   report_merge whats_new skipped=true reason=run_whats_new_false

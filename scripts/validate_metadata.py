@@ -133,6 +133,28 @@ def record_validation_report(**fields) -> None:
 def main():
     errors = []
     warnings = []
+    import os
+
+    if os.environ.get("WHATS_NEW_VALIDATE_ONLY", "").lower() in {"1", "true", "yes", "on"}:
+        validate_whats_new(errors)
+        locales = metadata_locales()
+        if errors:
+            for error in errors:
+                print(f"ERROR: {error}", file=sys.stderr)
+            record_validation_report(
+                passed=False,
+                mode="whats_new",
+                whats_new_locales=len(locales),
+            )
+            sys.exit(1)
+        print("Validation passed for What's New upload.")
+        record_validation_report(
+            passed=True,
+            mode="whats_new",
+            whats_new_locales=len(locales),
+        )
+        return
+
     plan = resolve_run_plan()
     mode = plan["mode"]
 

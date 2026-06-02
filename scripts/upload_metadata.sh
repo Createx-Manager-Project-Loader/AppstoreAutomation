@@ -87,17 +87,20 @@ has_description_metadata() {
   compgen -G "$REPO_ROOT/metadata/*/description.txt" >/dev/null
 }
 
-METADATA_ITEMS="subtitle,keywords,release_notes"
+METADATA_ITEMS="subtitle,keywords"
 if has_description_metadata; then
-  METADATA_ITEMS="subtitle,keywords,description,release_notes"
+  METADATA_ITEMS="subtitle,keywords,description"
 fi
 
-if compgen -G "$REPO_ROOT/metadata/*/support_url.txt" >/dev/null; then
-  METADATA_ITEMS="$METADATA_ITEMS,support_url"
-fi
+if [[ "${RUN_WHATS_NEW:-false}" != "true" ]]; then
+  METADATA_ITEMS="$METADATA_ITEMS,release_notes"
+  if compgen -G "$REPO_ROOT/metadata/*/support_url.txt" >/dev/null; then
+    METADATA_ITEMS="$METADATA_ITEMS,support_url"
+  fi
 
-if compgen -G "$REPO_ROOT/metadata/*/marketing_url.txt" >/dev/null; then
-  METADATA_ITEMS="$METADATA_ITEMS,marketing_url"
+  if compgen -G "$REPO_ROOT/metadata/*/marketing_url.txt" >/dev/null; then
+    METADATA_ITEMS="$METADATA_ITEMS,marketing_url"
+  fi
 fi
 
 if [[ "${INCLUDE_APP_NAME:-false}" == "true" ]]; then
