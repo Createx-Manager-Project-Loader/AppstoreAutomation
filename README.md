@@ -34,6 +34,10 @@ Environment overrides (set in GitHub Actions workflow):
 
 CI artifacts (prepared metadata, screenshots, reports) are written to `automation-prepared/` in the app repo, not inside this shared repo.
 
+### Partial uploads (`RUN_MODE=all` / `aso`)
+
+Upload steps (metadata, app name, subscriptions, screenshots, What's New) run independently. If one step or locale fails (for example app name already taken, or screenshots for an unavailable locale), later steps still run and successful locales are kept. The final report status is `PARTIAL` and the job exits with code `1` so CI shows a warning. Prepare/validation failures still stop the run immediately.
+
 ## Connect to an app repository
 
 ### Option A — Git submodule

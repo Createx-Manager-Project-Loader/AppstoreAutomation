@@ -27,3 +27,6 @@ report_status() {
 report_print_final() {
   python3 "$REPORT_PY" print-final
 }
+
+# Set by report_continue_step (see upload_continue.sh) when a step fails but later steps should run.
+: "${AUTOMATION_HAD_FAILURES:=false}"

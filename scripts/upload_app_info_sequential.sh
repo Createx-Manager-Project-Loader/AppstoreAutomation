@@ -86,5 +86,7 @@ if [[ "${#failed_locales[@]}" -gt 0 ]]; then
   echo "Most common reason: App Store Connect rejected a non-unique app name." >&2
   report_warning "App info upload failed for ${#failed_locales[@]} locale(s): ${failed_locales[*]}"
   report_error "App info upload failed for ${#failed_locales[@]} locale(s): ${failed_locales[*]}"
+  report_merge app_info status=partial
+  echo "Uploaded ${#uploaded_locales[@]} / $total_locales app info locale(s) before failures."
   exit 1
 fi

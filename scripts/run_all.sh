@@ -3,11 +3,13 @@ set -euo pipefail
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/paths.sh"
 source "$LIB_DIR/report.sh"
+source "$LIB_DIR/upload_continue.sh"
 
 cd "$REPO_ROOT"
 
 AUTOMATION_EXIT_CODE=0
 AUTOMATION_FINISHED=false
+AUTOMATION_HAD_FAILURES=false
 
 finish_automation_run() {
   if [[ "$AUTOMATION_FINISHED" == "true" ]]; then
@@ -15,8 +17,15 @@ finish_automation_run() {
   fi
   AUTOMATION_FINISHED=true
 
+  if [[ "$AUTOMATION_EXIT_CODE" -eq 0 && "$AUTOMATION_HAD_FAILURES" == "true" ]]; then
+    AUTOMATION_EXIT_CODE=1
+  fi
+
   if [[ "$AUTOMATION_EXIT_CODE" -eq 0 ]]; then
     report_status success
+  elif [[ "$AUTOMATION_HAD_FAILURES" == "true" ]]; then
+    report_status partial
+    report_error "Automation finished with one or more failed steps; successful uploads were kept."
   else
     report_status failed
     if [[ "$AUTOMATION_EXIT_CODE" -ne 0 ]]; then
@@ -111,7 +120,7 @@ if [[ "$RUN_METADATA" == "true" ]]; then
   else
     run_step "Uploading metadata: subtitle, keywords, description, release notes..."
   fi
-  SKIP_PREPARE=true bash "$SCRIPT_DIR/upload_metadata.sh"
+  report_continue_step "Metadata upload" env SKIP_PREPARE=true bash "$SCRIPT_DIR/upload_metadata.sh"
 else
   echo "Skipping metadata upload (RUN_METADATA=false for RUN_MODE=$MODE)."
   report_merge metadata_upload skipped=true status=skipped reason=run_metadata_false
@@ -119,7 +128,7 @@ fi
 
 if [[ "$RUN_APP_INFO" == "true" ]]; then
   run_step "Uploading app names and subtitles sequentially..."
-  SKIP_PREPARE=true bash "$SCRIPT_DIR/upload_app_info_sequential.sh"
+  report_continue_step "App name / subtitle upload" env SKIP_PREPARE=true bash "$SCRIPT_DIR/upload_app_info_sequential.sh"
 else
   echo "Skipping app info upload (RUN_APP_INFO=false for RUN_MODE=$MODE)."
   report_merge app_info skipped=true reason=run_app_info_false
@@ -127,7 +136,7 @@ fi
 
 if [[ "$RUN_SUBSCRIPTIONS" == "true" ]]; then
   run_step "Uploading subscription localizations..."
-  SKIP_PREPARE=true bash "$SCRIPT_DIR/upload_subscriptions.sh"
+  report_continue_step "Subscription localizations" env SKIP_PREPARE=true bash "$SCRIPT_DIR/upload_subscriptions.sh"
 else
   echo "Skipping subscription localization upload (RUN_SUBSCRIPTIONS=false for RUN_MODE=$MODE)."
   report_merge subscriptions skipped=true reason=run_subscriptions_false
@@ -135,7 +144,7 @@ fi
 
 if [[ "$RUN_SCREENSHOTS" == "true" ]]; then
   run_step "Uploading screenshots sequentially..."
-  SKIP_PREPARE=true bash "$SCRIPT_DIR/upload_screenshots_sequential.sh"
+  report_continue_step "Screenshot upload" env SKIP_PREPARE=true bash "$SCRIPT_DIR/upload_screenshots_sequential.sh"
 else
   echo "Skipping screenshots upload (RUN_SCREENSHOTS=false for RUN_MODE=$MODE)."
   report_merge screenshots skipped=true reason=run_screenshots_false
@@ -143,10 +152,13 @@ fi
 
 if [[ "$RUN_WHATS_NEW" == "true" ]]; then
   run_step "Uploading What's New..."
-  bash "$SCRIPT_DIR/run_whats_new_pipeline.sh"
+  report_continue_step "What's New upload" bash "$SCRIPT_DIR/run_whats_new_pipeline.sh"
 else
   echo "Skipping What's New upload (RUN_WHATS_NEW=false for RUN_MODE=$MODE)."
   report_merge whats_new skipped=true reason=run_whats_new_false
 fi
 
+if [[ "$AUTOMATION_HAD_FAILURES" == "true" ]]; then
+  exit 1
+fi
 exit 0

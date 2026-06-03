@@ -69,15 +69,9 @@ upload_locale() {
     fi
 
     if [[ "$attempt" -ge "$MAX_ATTEMPTS" ]]; then
-      echo "Failed to upload screenshots for $locale after $MAX_ATTEMPTS attempt(s)."
+      echo "Failed to upload screenshots for $locale after $MAX_ATTEMPTS attempt(s). Continuing with next locale."
       failed_locales+=("$locale")
-      report_merge screenshots \
-        uploaded="${#uploaded_locales[@]}" \
-        total="$total_locales" \
-        failed="${#failed_locales[@]}" \
-        failed_locales="${failed_locales[*]}"
-      report_error "Screenshot upload failed for locale(s): ${failed_locales[*]}"
-      exit 1
+      break
     fi
 
     attempt=$((attempt + 1))
@@ -104,3 +98,10 @@ report_merge screenshots \
   failed_locales="${failed_locales[*]-}"
 
 echo "Sequential screenshot upload completed: ${#uploaded_locales[@]} / $total_locales locale(s)."
+
+if [[ "${#failed_locales[@]}" -gt 0 ]]; then
+  report_warning "Screenshot upload failed for ${#failed_locales[@]} locale(s): ${failed_locales[*]}"
+  report_error "Screenshot upload failed for ${#failed_locales[@]} locale(s): ${failed_locales[*]}"
+  report_merge screenshots status=partial
+  exit 1
+fi

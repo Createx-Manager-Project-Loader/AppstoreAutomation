@@ -112,7 +112,7 @@ def add_message(kind: str, message: str) -> None:
 def set_status(status: str) -> None:
     report = load_report() or default_report()
     report["status"] = status
-    if status in {"success", "failed"}:
+    if status in {"success", "failed", "partial"}:
         report["finished_at"] = datetime.now(timezone.utc).isoformat()
     save_report(report)
 
@@ -158,6 +158,7 @@ def print_final_report() -> int:
     status = report.get("status", "unknown")
     status_label = {
         "success": "SUCCESS",
+        "partial": "PARTIAL (some steps failed; other uploads may have succeeded)",
         "failed": "FAILED",
         "running": "INCOMPLETE",
     }.get(status, status.upper())
@@ -366,9 +367,9 @@ def print_final_report() -> int:
     lines.append(border)
 
     output = "\n".join(lines)
-    stream = sys.stderr if status == "failed" else sys.stdout
+    stream = sys.stderr if status in {"failed", "partial"} else sys.stdout
     print(output, file=stream)
-    return 1 if status == "failed" else 0
+    return 1 if status in {"failed", "partial"} else 0
 
 
 def cmd_init(_: argparse.Namespace) -> int:
@@ -431,7 +432,7 @@ def main() -> int:
     add.set_defaults(func=cmd_add)
 
     status = sub.add_parser("set-status")
-    status.add_argument("status", choices=["running", "success", "failed"])
+    status.add_argument("status", choices=["running", "success", "partial", "failed"])
     status.set_defaults(func=cmd_status)
 
     sub.add_parser("print-final").set_defaults(func=cmd_print)
