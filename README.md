@@ -36,7 +36,11 @@ CI artifacts (prepared metadata, screenshots, reports) are written to `automatio
 
 ### Partial uploads (`RUN_MODE=all` / `aso`)
 
-Upload steps (metadata, app name, subscriptions, screenshots, What's New) run independently. If one step or locale fails (for example app name already taken, or screenshots for an unavailable locale), later steps still run and successful locales are kept. The final report status is `PARTIAL` and the job exits with code `1` so CI shows a warning. Prepare/validation failures still stop the run immediately.
+Upload steps (metadata, app name, subscriptions, screenshots, What's New) run independently. If one step or locale fails (for example app name already taken, or screenshots for an unavailable locale), later steps still run and successful locales are kept. The final report status is `PARTIAL` and the job exits with code `1` so CI shows a warning.
+
+**Per-locale validation (default):** If a locale has invalid ASO fields (empty title, title/subtitle/keywords over App Store limits, bad keywords format, invalid subscription text, etc.), that locale is excluded from prepared `metadata/`, logged as a warning, and upload continues for all other locales. Excluded locales are listed in `automation-prepared/excluded_locales.json`. The run stops only for fatal issues (cannot read the ASO workbook, no locale rows at all, every locale invalid, missing screenshots when `prepare_screenshots` is required, etc.).
+
+Set `VALIDATION_STRICT=1` to restore the old behavior: any locale validation error fails the whole run before upload.
 
 ## Connect to an app repository
 

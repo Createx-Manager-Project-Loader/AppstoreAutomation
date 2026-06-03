@@ -107,7 +107,7 @@ if [[ "$PREPARE_ASO" == "true" || "$PREPARE_SCREENSHOTS" == "true" ]]; then
 fi
 
 run_step "Validating inputs..."
-bash "$SCRIPT_DIR/validate_metadata.sh"
+report_continue_step "Input validation" bash "$SCRIPT_DIR/validate_metadata.sh"
 
 if [[ "$RUN_METADATA" == "true" || "$RUN_WHATS_NEW" == "true" || "$RUN_SCREENSHOTS" == "true" || "$RUN_APP_INFO" == "true" ]]; then
   echo "Ensuring editable App Store version exists..."
