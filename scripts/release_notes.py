@@ -194,7 +194,7 @@ def fetch_live_version_localization_attributes(root_dir: Path) -> dict[str, dict
 
     localizations = client.get_all(
         f"/appStoreVersions/{version['id']}/appStoreVersionLocalizations"
-        "?fields[appStoreVersionLocalizations]=locale,description,whatsNew,supportUrl,marketingUrl"
+        "?fields[appStoreVersionLocalizations]=locale,description,keywords,whatsNew,supportUrl,marketingUrl"
     )
 
     attributes_by_locale: dict[str, dict[str, str]] = {
@@ -210,6 +210,10 @@ def fetch_live_version_localization_attributes(root_dir: Path) -> dict[str, dict
         description = (attributes.get("description") or "").strip()
         if description:
             entry["description"] = description
+
+        keywords = (attributes.get("keywords") or "").strip()
+        if keywords:
+            entry["keywords"] = keywords
 
         whats_new = (attributes.get("whatsNew") or "").strip()
         if whats_new:
@@ -308,6 +312,21 @@ def base_locale() -> str:
     return (os.environ.get("RELEASE_NOTES_BASE_LOCALE") or DEFAULT_BASE_LOCALE).strip()
 
 
+def primary_locale_from_live(live_attributes: Optional[dict[str, dict[str, str]]]) -> str:
+    if live_attributes:
+        primary = live_attributes.get(LIVE_ATTRIBUTES_META_KEY, {}).get("primary_locale", "").strip()
+        if primary:
+            return primary
+    return base_locale()
+
+
+def primary_fields_from_live(live_attributes: Optional[dict[str, dict[str, str]]]) -> dict[str, str]:
+    if not live_attributes:
+        return {}
+    primary_locale = primary_locale_from_live(live_attributes)
+    return dict(live_attributes.get(primary_locale, {}))
+
+
 def resolve_release_notes_for_locales(
     locales: list[str],
     root_dir: Path,
@@ -337,19 +356,25 @@ def resolve_release_notes_for_locales(
     except requests.RequestException as error:
         print(f"WARNING: Could not fetch live What's New from App Store Connect: {error}", file=sys.stderr)
 
-    base_live_text = live_notes.get(base, "").strip() if live_notes else ""
+    primary = primary_locale_from_live(live_attributes)
+    primary_live_text = live_notes.get(primary, "").strip() if live_notes else ""
+    base_live_text = live_notes.get(base, "").strip() if live_notes and base != primary else ""
 
     resolved = {}
     live_locales = []
+    primary_locales = []
     base_locales = []
     file_locales = []
-    stats = {"source_live": 0, "source_base": 0, "source_config": 0}
+    stats = {"source_live": 0, "source_primary": 0, "source_base": 0, "source_config": 0}
 
     for locale in locales:
         live_text = live_notes.get(locale, "").strip()
         if live_text:
             resolved[locale] = live_text
             live_locales.append(locale)
+        elif primary_live_text:
+            resolved[locale] = primary_live_text
+            primary_locales.append(locale)
         elif base_live_text:
             resolved[locale] = base_live_text
             base_locales.append(locale)
@@ -358,11 +383,17 @@ def resolve_release_notes_for_locales(
             file_locales.append(locale)
 
     stats["source_live"] = len(live_locales)
+    stats["source_primary"] = len(primary_locales)
     stats["source_base"] = len(base_locales)
     stats["source_config"] = len(file_locales)
 
     if live_locales:
         print("Prepared What's New from live App Store version for: " + ", ".join(sorted(live_locales)))
+    if primary_locales:
+        print(
+            f"Prepared What's New from primary locale {primary} in live App Store version for: "
+            + ", ".join(sorted(primary_locales))
+        )
     if base_locales:
         print(
             f"Prepared What's New from base locale {base} in live App Store version for: "
@@ -375,7 +406,7 @@ def resolve_release_notes_for_locales(
             else "config release_notes"
         )
         print(f"Prepared What's New from {fallback_label} for: " + ", ".join(sorted(file_locales)))
-    elif fallback_text and resolved and not live_locales and not base_locales:
+    elif fallback_text and resolved and not live_locales and not primary_locales and not base_locales:
         fallback_label = (
             "workflow release_notes"
             if release_notes_fallback_source() == "workflow_or_env"
@@ -391,9 +422,11 @@ def resolve_descriptions_for_locales(
     description_rows: dict[str, dict[str, str]],
     root_dir: Path,
     live_attributes: Optional[dict[str, dict[str, str]]] = None,
+    aso_locales: Optional[set[str]] = None,
 ) -> tuple[dict[str, str], dict[str, int]]:
-    """Prefer Description sheet text; fall back to the latest released version per locale."""
+    """Prefer Description sheet text; then released locale; then primary for locales missing from ASO."""
     live_descriptions: dict[str, str] = {}
+    aso_locale_set = aso_locales if aso_locales is not None else set()
 
     try:
         if live_attributes is None:
@@ -408,10 +441,14 @@ def resolve_descriptions_for_locales(
     except requests.RequestException as error:
         print(f"WARNING: Could not fetch live descriptions from App Store Connect: {error}", file=sys.stderr)
 
+    primary_description = primary_fields_from_live(live_attributes).get("description", "").strip()
+    primary = primary_locale_from_live(live_attributes)
+
     resolved: dict[str, str] = {}
     file_locales: list[str] = []
     live_locales: list[str] = []
-    stats = {"source_file": 0, "source_live": 0}
+    primary_locales: list[str] = []
+    stats = {"source_file": 0, "source_live": 0, "source_primary": 0}
 
     for locale in locales:
         file_text = description_rows.get(locale, {}).get("description", "").strip()
@@ -424,9 +461,15 @@ def resolve_descriptions_for_locales(
         if live_text:
             resolved[locale] = live_text
             live_locales.append(locale)
+            continue
+
+        if locale not in aso_locale_set and primary_description:
+            resolved[locale] = primary_description
+            primary_locales.append(locale)
 
     stats["source_file"] = len(file_locales)
     stats["source_live"] = len(live_locales)
+    stats["source_primary"] = len(primary_locales)
 
     if file_locales:
         print("Prepared description from Google Sheet for: " + ", ".join(sorted(file_locales)))
@@ -434,6 +477,80 @@ def resolve_descriptions_for_locales(
         print(
             "Prepared description from released App Store version for: "
             + ", ".join(sorted(live_locales))
+        )
+    if primary_locales:
+        print(
+            f"Prepared description from primary locale {primary} for locales missing from ASO: "
+            + ", ".join(sorted(primary_locales))
+        )
+
+    return resolved, stats
+
+
+def resolve_keywords_for_locales(
+    locales: list[str],
+    aso_rows: dict[str, dict[str, str]],
+    root_dir: Path,
+    live_attributes: Optional[dict[str, dict[str, str]]] = None,
+) -> tuple[dict[str, str], dict[str, int]]:
+    """ASO sheet keywords first; for locales missing from ASO use released locale, then primary."""
+    try:
+        if live_attributes is None:
+            live_attributes = fetch_live_version_localization_attributes(root_dir)
+    except AppStoreConnectError as error:
+        print(f"WARNING: Could not fetch live keywords from App Store Connect: {error}", file=sys.stderr)
+        live_attributes = live_attributes or {}
+    except requests.RequestException as error:
+        print(f"WARNING: Could not fetch live keywords from App Store Connect: {error}", file=sys.stderr)
+        live_attributes = live_attributes or {}
+
+    primary_keywords = primary_fields_from_live(live_attributes).get("keywords", "").strip()
+    primary = primary_locale_from_live(live_attributes)
+
+    resolved: dict[str, str] = {}
+    file_locales: list[str] = []
+    live_locales: list[str] = []
+    primary_locales: list[str] = []
+    stats = {"source_file": 0, "source_live": 0, "source_primary": 0}
+
+    for locale in locales:
+        if locale in aso_rows:
+            sheet_text = aso_rows[locale].get("keywords", "").strip()
+            if sheet_text:
+                resolved[locale] = sheet_text
+                file_locales.append(locale)
+                continue
+
+        if locale in aso_rows:
+            continue
+
+        live_text = ""
+        if live_attributes:
+            live_text = live_attributes.get(locale, {}).get("keywords", "").strip()
+        if live_text:
+            resolved[locale] = live_text
+            live_locales.append(locale)
+            continue
+
+        if primary_keywords:
+            resolved[locale] = primary_keywords
+            primary_locales.append(locale)
+
+    stats["source_file"] = len(file_locales)
+    stats["source_live"] = len(live_locales)
+    stats["source_primary"] = len(primary_locales)
+
+    if file_locales:
+        print("Prepared keywords from Google Sheet ASO for: " + ", ".join(sorted(file_locales)))
+    if live_locales:
+        print(
+            "Prepared keywords from released App Store version for locales missing from ASO: "
+            + ", ".join(sorted(live_locales))
+        )
+    if primary_locales:
+        print(
+            f"Prepared keywords from primary locale {primary} for locales missing from ASO: "
+            + ", ".join(sorted(primary_locales))
         )
 
     return resolved, stats

@@ -42,6 +42,8 @@ Upload steps (metadata, app name, subscriptions, screenshots, What's New) run in
 
 **Description fallback:** For each locale, the Description sheet in the ASO workbook wins when filled in. If the sheet has no text for that locale, the automation copies `description` from the latest `READY_FOR_SALE` App Store version for the same locale (when it exists there).
 
+**Locales missing from ASO (e.g. screenshot-only):** Screenshot locales are included in metadata preparation. For locales not present in the ASO sheet, `description`, `keywords`, What's New, and Support/Marketing URLs are taken from the same locale in the latest released version when available; otherwise from the app's primary locale in that release.
+
 Set `VALIDATION_STRICT=1` to restore the old behavior: any locale validation error fails the whole run before upload.
 
 ## Connect to an app repository

@@ -919,15 +919,26 @@ def write_text(path, value):
     path.write_text(value.rstrip() + "\n", encoding="utf-8")
 
 
-def prepare_metadata_files(aso_rows, description_rows):
+def list_prepared_screenshot_locales():
+    if not PREPARED_SCREENSHOTS_DIR.exists():
+        return []
+    return sorted(
+        path.name
+        for path in PREPARED_SCREENSHOTS_DIR.iterdir()
+        if path.is_dir() and LOCALE_RE.match(path.name)
+    )
+
+
+def prepare_metadata_files(aso_rows, description_rows, extra_locales=None):
     from release_notes import (
         apply_version_urls_to_metadata_dir,
         fetch_live_version_localization_attributes,
         resolve_descriptions_for_locales,
+        resolve_keywords_for_locales,
         resolve_release_notes_for_locales,
     )
 
-    locales = sorted(set(aso_rows) | set(description_rows))
+    locales = sorted(set(aso_rows) | set(description_rows) | set(extra_locales or []))
     live_attributes = None
     try:
         live_attributes = fetch_live_version_localization_attributes(REPO_ROOT)
@@ -945,6 +956,13 @@ def prepare_metadata_files(aso_rows, description_rows):
         description_rows,
         REPO_ROOT,
         live_attributes=live_attributes,
+        aso_locales=set(aso_rows),
+    )
+    keywords_by_locale, _keywords_stats = resolve_keywords_for_locales(
+        locales,
+        aso_rows,
+        REPO_ROOT,
+        live_attributes=live_attributes,
     )
 
     for locale in locales:
@@ -953,7 +971,8 @@ def prepare_metadata_files(aso_rows, description_rows):
             row = aso_rows[locale]
             write_text(locale_dir / "name.txt", row.get("title", ""))
             write_text(locale_dir / "subtitle.txt", row.get("subtitle", ""))
-            write_text(locale_dir / "keywords.txt", row.get("keywords", ""))
+        if locale in keywords_by_locale:
+            write_text(locale_dir / "keywords.txt", keywords_by_locale[locale])
         if locale in descriptions_by_locale:
             write_text(locale_dir / "description.txt", descriptions_by_locale[locale])
         if locale in release_notes_by_locale:
@@ -1083,13 +1102,25 @@ def main():
     subscription_locale_count = 0
     version_url_files = 0
 
+    screenshot_locales = []
+    if has_screenshots_source():
+        screenshot_locales, screenshot_file_count, screenshot_locale_count = prepare_screenshots()
+        if screenshot_locales:
+            print("Prepared screenshot locales: " + ", ".join(screenshot_locales))
+    else:
+        print("Skipping screenshot preparation: SCREENSHOTS_ZIP_URL is empty.")
+
     if has_aso_source():
         aso_rows = read_aso_rows()
         description_rows = read_description_rows()
         subscription_rows = read_subscription_rows()
         if not aso_rows:
             raise SystemExit("ASO input must contain at least one locale row")
-        metadata_locales, version_url_files = prepare_metadata_files(aso_rows, description_rows)
+        metadata_locales, version_url_files = prepare_metadata_files(
+            aso_rows,
+            description_rows,
+            extra_locales=screenshot_locales,
+        )
         aso_locale_count = len(aso_rows)
         description_locale_count = len(description_rows)
         subscription_locale_count = write_prepared_subscription_rows(subscription_rows)
@@ -1110,13 +1141,6 @@ def main():
         print("Prepared metadata locales: " + ", ".join(metadata_locales))
     else:
         print("Skipping ASO/metadata preparation: GOOGLE_SHEET_URL is empty.")
-
-    if has_screenshots_source():
-        screenshot_locales, screenshot_file_count, screenshot_locale_count = prepare_screenshots()
-        if screenshot_locales:
-            print("Prepared screenshot locales: " + ", ".join(screenshot_locales))
-    else:
-        print("Skipping screenshot preparation: SCREENSHOTS_ZIP_URL is empty.")
 
     record_prepare_report(
         aso_skipped=aso_skipped,

@@ -7,6 +7,17 @@ source "$LIB_DIR/report.sh"
 PREPARED_SCREENSHOTS_DIR="$PREPARED_DIR/screenshots"
 LOCALE_PATTERN='^[a-z]{2}(-[A-Za-z]{2,4})?$'
 
+screenshot_locale_added=0
+if [[ -d "$PREPARED_SCREENSHOTS_DIR" ]]; then
+  for locale_dir in "$PREPARED_SCREENSHOTS_DIR"/*; do
+    [[ -d "$locale_dir" ]] || continue
+    locale="$(basename "$locale_dir")"
+    [[ "$locale" =~ $LOCALE_PATTERN ]] || continue
+    mkdir -p "$METADATA_DIR/$locale"
+    screenshot_locale_added=$((screenshot_locale_added + 1))
+  done
+fi
+
 metadata_locale_count=0
 for locale_dir in "$METADATA_DIR"/*; do
   [[ -d "$locale_dir" ]] || continue
@@ -16,26 +27,14 @@ for locale_dir in "$METADATA_DIR"/*; do
 done
 
 if [[ "$metadata_locale_count" -gt 0 ]]; then
-  echo "Using existing metadata locale folders for What's New ($metadata_locale_count)."
-  report_merge whats_new locales_total="$metadata_locale_count" bootstrap_source=existing_metadata
-  exit 0
-fi
-
-if [[ -d "$PREPARED_SCREENSHOTS_DIR" ]]; then
-  screenshot_locale_count=0
-  for locale_dir in "$PREPARED_SCREENSHOTS_DIR"/*; do
-    [[ -d "$locale_dir" ]] || continue
-    locale="$(basename "$locale_dir")"
-    [[ "$locale" =~ $LOCALE_PATTERN ]] || continue
-    mkdir -p "$METADATA_DIR/$locale"
-    screenshot_locale_count=$((screenshot_locale_count + 1))
-  done
-
-  if [[ "$screenshot_locale_count" -gt 0 ]]; then
-    echo "Created metadata locale folders from prepared screenshots ($screenshot_locale_count)."
-    report_merge whats_new locales_total="$screenshot_locale_count" bootstrap_source=prepared_screenshots
-    exit 0
+  if [[ "$screenshot_locale_added" -gt 0 ]]; then
+    echo "Using metadata locale folders for What's New ($metadata_locale_count; ensured $screenshot_locale_added screenshot locale folder(s))."
+    report_merge whats_new locales_total="$metadata_locale_count" bootstrap_source=existing_metadata_and_screenshots
+  else
+    echo "Using existing metadata locale folders for What's New ($metadata_locale_count)."
+    report_merge whats_new locales_total="$metadata_locale_count" bootstrap_source=existing_metadata
   fi
+  exit 0
 fi
 
 echo "No metadata or screenshot locales found. Creating locale folders from editable App Store version..."
