@@ -40,9 +40,9 @@ Upload steps (metadata, app name, subscriptions, screenshots, What's New) run in
 
 **Per-locale validation (default):** If a locale has invalid ASO fields (empty title, title/subtitle/keywords over App Store limits, bad keywords format, invalid subscription text, etc.), that locale is excluded from prepared `metadata/`, logged as a warning, and upload continues for all other locales. Excluded locales are listed in `automation-prepared/excluded_locales.json`. The run stops only for fatal issues (cannot read the ASO workbook, no locale rows at all, every locale invalid, missing screenshots when `prepare_screenshots` is required, etc.).
 
-**Description fallback:** For each locale, the Description sheet in the ASO workbook wins when filled in. If the sheet has no text for that locale, the automation copies `description` from the latest `READY_FOR_SALE` App Store version for the same locale (when it exists there).
+**Description fallback:** For each locale, the Description sheet in the ASO workbook wins when filled in. If the sheet has no text for that locale, the automation copies `description` from the latest `READY_FOR_SALE` App Store version for the same locale (when it exists there). Description is never copied from the primary locale (stays empty so a proper translation can be added).
 
-**Locales missing from ASO (e.g. screenshot-only):** Screenshot locales are included in metadata preparation. For locales not present in the ASO sheet, `description`, `keywords`, What's New, and Support/Marketing URLs are taken from the same locale in the latest released version when available; otherwise from the app's primary locale in that release.
+**Locales missing from ASO (e.g. screenshot-only):** Screenshot locales are included in metadata preparation. For locales not present in the ASO sheet, `keywords`, What's New, and Support/Marketing URLs are taken from the same locale in the latest released version when available; otherwise from the app's primary locale. Description follows the rule above only (sheet or same locale in release, not primary).
 
 Set `VALIDATION_STRICT=1` to restore the old behavior: any locale validation error fails the whole run before upload.
 

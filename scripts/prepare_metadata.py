@@ -956,7 +956,6 @@ def prepare_metadata_files(aso_rows, description_rows, extra_locales=None):
         description_rows,
         REPO_ROOT,
         live_attributes=live_attributes,
-        aso_locales=set(aso_rows),
     )
     keywords_by_locale, _keywords_stats = resolve_keywords_for_locales(
         locales,

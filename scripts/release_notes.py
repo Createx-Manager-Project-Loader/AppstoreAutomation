@@ -422,11 +422,9 @@ def resolve_descriptions_for_locales(
     description_rows: dict[str, dict[str, str]],
     root_dir: Path,
     live_attributes: Optional[dict[str, dict[str, str]]] = None,
-    aso_locales: Optional[set[str]] = None,
 ) -> tuple[dict[str, str], dict[str, int]]:
-    """Prefer Description sheet text; then released locale; then primary for locales missing from ASO."""
+    """Prefer Description sheet text; otherwise the same locale in the latest released version."""
     live_descriptions: dict[str, str] = {}
-    aso_locale_set = aso_locales if aso_locales is not None else set()
 
     try:
         if live_attributes is None:
@@ -441,14 +439,10 @@ def resolve_descriptions_for_locales(
     except requests.RequestException as error:
         print(f"WARNING: Could not fetch live descriptions from App Store Connect: {error}", file=sys.stderr)
 
-    primary_description = primary_fields_from_live(live_attributes).get("description", "").strip()
-    primary = primary_locale_from_live(live_attributes)
-
     resolved: dict[str, str] = {}
     file_locales: list[str] = []
     live_locales: list[str] = []
-    primary_locales: list[str] = []
-    stats = {"source_file": 0, "source_live": 0, "source_primary": 0}
+    stats = {"source_file": 0, "source_live": 0}
 
     for locale in locales:
         file_text = description_rows.get(locale, {}).get("description", "").strip()
@@ -461,15 +455,9 @@ def resolve_descriptions_for_locales(
         if live_text:
             resolved[locale] = live_text
             live_locales.append(locale)
-            continue
-
-        if locale not in aso_locale_set and primary_description:
-            resolved[locale] = primary_description
-            primary_locales.append(locale)
 
     stats["source_file"] = len(file_locales)
     stats["source_live"] = len(live_locales)
-    stats["source_primary"] = len(primary_locales)
 
     if file_locales:
         print("Prepared description from Google Sheet for: " + ", ".join(sorted(file_locales)))
@@ -477,11 +465,6 @@ def resolve_descriptions_for_locales(
         print(
             "Prepared description from released App Store version for: "
             + ", ".join(sorted(live_locales))
-        )
-    if primary_locales:
-        print(
-            f"Prepared description from primary locale {primary} for locales missing from ASO: "
-            + ", ".join(sorted(primary_locales))
         )
 
     return resolved, stats
