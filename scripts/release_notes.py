@@ -227,10 +227,31 @@ def fetch_live_version_localization_attributes(root_dir: Path) -> dict[str, dict
         if marketing_url:
             entry["marketing_url"] = marketing_url
 
-        if entry:
-            attributes_by_locale[locale] = entry
+        attributes_by_locale[locale] = entry
 
     return attributes_by_locale
+
+
+def released_version_has_locale(
+    live_attributes: Optional[dict[str, dict[str, str]]],
+    locale: str,
+) -> bool:
+    return bool(
+        live_attributes
+        and locale in live_attributes
+        and locale != LIVE_ATTRIBUTES_META_KEY
+    )
+
+
+def app_info_has_locale(
+    app_info_attributes: Optional[dict[str, dict[str, str]]],
+    locale: str,
+) -> bool:
+    return bool(
+        app_info_attributes
+        and locale in app_info_attributes
+        and locale != LIVE_ATTRIBUTES_META_KEY
+    )
 
 
 def fetch_app_info_localization_attributes(root_dir: Path) -> dict[str, dict[str, str]]:
@@ -270,8 +291,7 @@ def fetch_app_info_localization_attributes(root_dir: Path) -> dict[str, dict[str
         if subtitle:
             entry["subtitle"] = subtitle
 
-        if entry:
-            attributes_by_locale[locale] = entry
+        attributes_by_locale[locale] = entry
 
     return attributes_by_locale
 
@@ -415,7 +435,12 @@ def resolve_release_notes_for_locales(
         if live_text:
             resolved[locale] = live_text
             live_locales.append(locale)
-        elif primary_live_text:
+            continue
+
+        if released_version_has_locale(live_attributes, locale):
+            continue
+
+        if primary_live_text:
             resolved[locale] = primary_live_text
             primary_locales.append(locale)
         elif base_live_text:
@@ -434,7 +459,7 @@ def resolve_release_notes_for_locales(
         print("Prepared What's New from live App Store version for: " + ", ".join(sorted(live_locales)))
     if primary_locales:
         print(
-            f"Prepared What's New from primary locale {primary} in live App Store version for: "
+            f"Prepared What's New from primary locale {primary} for locales not in the released App Store version: "
             + ", ".join(sorted(primary_locales))
         )
     if base_locales:
@@ -555,6 +580,9 @@ def resolve_app_info_for_locales(
             live_locales.append(locale)
             continue
 
+        if app_info_has_locale(app_info_attributes, locale):
+            continue
+
         primary_name = primary_info.get("name", "").strip()
         primary_subtitle = primary_info.get("subtitle", "").strip()
         if primary_name or primary_subtitle:
@@ -574,7 +602,7 @@ def resolve_app_info_for_locales(
         )
     if primary_locales:
         print(
-            f"Prepared app name/subtitle from primary locale {primary} for locales missing ASO content: "
+            f"Prepared app name/subtitle from primary locale {primary} for locales without App Info localization: "
             + ", ".join(sorted(primary_locales))
         )
 
@@ -622,6 +650,9 @@ def resolve_keywords_for_locales(
             live_locales.append(locale)
             continue
 
+        if released_version_has_locale(live_attributes, locale):
+            continue
+
         if primary_keywords:
             resolved[locale] = primary_keywords
             primary_locales.append(locale)
@@ -639,7 +670,7 @@ def resolve_keywords_for_locales(
         )
     if primary_locales:
         print(
-            f"Prepared keywords from primary locale {primary} for locales missing from ASO: "
+            f"Prepared keywords from primary locale {primary} for locales not in the released App Store version: "
             + ", ".join(sorted(primary_locales))
         )
 

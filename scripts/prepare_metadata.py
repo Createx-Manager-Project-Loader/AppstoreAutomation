@@ -519,6 +519,10 @@ def read_xlsx_sheet(path, preferred_names):
         return rows
 
 
+def aso_row_is_empty(row: dict) -> bool:
+    return not any((row.get(field) or "").strip() for field in ("title", "subtitle", "keywords"))
+
+
 def read_manager_aso_rows(rows, source_name):
     rows_by_locale = {}
     current_language = None
@@ -528,10 +532,6 @@ def read_manager_aso_rows(rows, source_name):
         nonlocal current_language, current_values
         if not current_language:
             return
-        if not any(current_values.get(field, "") for field in ("title", "subtitle", "keywords")):
-            current_language = None
-            current_values = {}
-            return
 
         locales = locales_for_name(current_language)
         if not locales:
@@ -539,9 +539,9 @@ def read_manager_aso_rows(rows, source_name):
         for locale in locales:
             rows_by_locale[locale] = {
                 "locale": locale,
-                "title": current_values.get("title", ""),
-                "subtitle": current_values.get("subtitle", ""),
-                "keywords": current_values.get("keywords", ""),
+                "title": (current_values.get("title") or "").strip(),
+                "subtitle": (current_values.get("subtitle") or "").strip(),
+                "keywords": (current_values.get("keywords") or "").strip(),
             }
         current_language = None
         current_values = {}
