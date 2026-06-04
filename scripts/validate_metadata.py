@@ -51,10 +51,10 @@ def collect_aso_locale_issues(aso_rows, description_rows) -> dict[str, list[str]
 
     for locale, row in aso_rows.items():
         for field in ("title", "subtitle", "keywords"):
-            value = row.get(field, "")
+            value = row.get(field, "").strip()
             if not value:
-                note(locale, f"empty {field}")
-            elif len(value) > LIMITS[field]:
+                continue
+            if len(value) > LIMITS[field]:
                 note(locale, f"{field} is {len(value)} chars; max is {LIMITS[field]}")
         if "\n" in row.get("keywords", ""):
             note(locale, "keywords must be a single line")

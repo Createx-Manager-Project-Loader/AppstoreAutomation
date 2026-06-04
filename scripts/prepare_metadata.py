@@ -933,6 +933,7 @@ def prepare_metadata_files(aso_rows, description_rows, extra_locales=None):
     from release_notes import (
         apply_version_urls_to_metadata_dir,
         fetch_live_version_localization_attributes,
+        resolve_app_info_for_locales,
         resolve_descriptions_for_locales,
         resolve_keywords_for_locales,
         resolve_release_notes_for_locales,
@@ -963,13 +964,20 @@ def prepare_metadata_files(aso_rows, description_rows, extra_locales=None):
         REPO_ROOT,
         live_attributes=live_attributes,
     )
+    app_info_by_locale, _app_info_stats = resolve_app_info_for_locales(
+        locales,
+        aso_rows,
+        REPO_ROOT,
+    )
 
     for locale in locales:
         locale_dir = METADATA_DIR / locale
-        if locale in aso_rows:
-            row = aso_rows[locale]
-            write_text(locale_dir / "name.txt", row.get("title", ""))
-            write_text(locale_dir / "subtitle.txt", row.get("subtitle", ""))
+        if locale in app_info_by_locale:
+            app_info = app_info_by_locale[locale]
+            if app_info.get("name"):
+                write_text(locale_dir / "name.txt", app_info["name"])
+            if app_info.get("subtitle"):
+                write_text(locale_dir / "subtitle.txt", app_info["subtitle"])
         if locale in keywords_by_locale:
             write_text(locale_dir / "keywords.txt", keywords_by_locale[locale])
         if locale in descriptions_by_locale:

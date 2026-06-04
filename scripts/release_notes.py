@@ -233,6 +233,49 @@ def fetch_live_version_localization_attributes(root_dir: Path) -> dict[str, dict
     return attributes_by_locale
 
 
+def fetch_app_info_localization_attributes(root_dir: Path) -> dict[str, dict[str, str]]:
+    config = asc_config(root_dir)
+    if config is None:
+        return {}
+
+    key_id, issuer_id, key_path, bundle_id = config
+    client = AppStoreConnectClient(key_id, issuer_id, key_path)
+
+    app = find_app(client, bundle_id)
+    primary_locale = (app.get("attributes", {}).get("primaryLocale") or base_locale()).strip()
+    app_infos = client.get_all(f"/apps/{app['id']}/appInfos?filter[platform]=IOS")
+    if not app_infos:
+        return {LIVE_ATTRIBUTES_META_KEY: {"primary_locale": primary_locale}}
+
+    localizations = client.get_all(
+        f"/appInfos/{app_infos[0]['id']}/appInfoLocalizations"
+        "?fields[appInfoLocalizations]=locale,name,subtitle"
+    )
+
+    attributes_by_locale: dict[str, dict[str, str]] = {
+        LIVE_ATTRIBUTES_META_KEY: {"primary_locale": primary_locale}
+    }
+    for localization in localizations:
+        attributes = localization.get("attributes", {})
+        locale = attributes.get("locale")
+        if not locale:
+            continue
+
+        entry: dict[str, str] = {}
+        name = (attributes.get("name") or "").strip()
+        if name:
+            entry["name"] = name
+
+        subtitle = (attributes.get("subtitle") or "").strip()
+        if subtitle:
+            entry["subtitle"] = subtitle
+
+        if entry:
+            attributes_by_locale[locale] = entry
+
+    return attributes_by_locale
+
+
 def fetch_live_release_notes_by_locale(root_dir: Path) -> dict[str, str]:
     attributes_by_locale = fetch_live_version_localization_attributes(root_dir)
     return {
@@ -470,6 +513,74 @@ def resolve_descriptions_for_locales(
     return resolved, stats
 
 
+def resolve_app_info_for_locales(
+    locales: list[str],
+    aso_rows: dict[str, dict[str, str]],
+    root_dir: Path,
+    app_info_attributes: Optional[dict[str, dict[str, str]]] = None,
+) -> tuple[dict[str, dict[str, str]], dict[str, int]]:
+    """ASO name/subtitle first; then App Info for locale; then primary App Info."""
+    try:
+        if app_info_attributes is None:
+            app_info_attributes = fetch_app_info_localization_attributes(root_dir)
+    except AppStoreConnectError as error:
+        print(f"WARNING: Could not fetch App Info localizations from App Store Connect: {error}", file=sys.stderr)
+        app_info_attributes = app_info_attributes or {}
+    except requests.RequestException as error:
+        print(f"WARNING: Could not fetch App Info localizations from App Store Connect: {error}", file=sys.stderr)
+        app_info_attributes = app_info_attributes or {}
+
+    primary = primary_locale_from_live(app_info_attributes)
+    primary_info = primary_fields_from_live(app_info_attributes)
+
+    resolved: dict[str, dict[str, str]] = {}
+    file_locales: list[str] = []
+    live_locales: list[str] = []
+    primary_locales: list[str] = []
+    stats = {"source_file": 0, "source_live": 0, "source_primary": 0}
+
+    for locale in locales:
+        sheet_name = aso_rows.get(locale, {}).get("title", "").strip() if locale in aso_rows else ""
+        sheet_subtitle = aso_rows.get(locale, {}).get("subtitle", "").strip() if locale in aso_rows else ""
+        if sheet_name or sheet_subtitle:
+            resolved[locale] = {"name": sheet_name, "subtitle": sheet_subtitle}
+            file_locales.append(locale)
+            continue
+
+        live_info = app_info_attributes.get(locale, {}) if app_info_attributes else {}
+        live_name = live_info.get("name", "").strip()
+        live_subtitle = live_info.get("subtitle", "").strip()
+        if live_name or live_subtitle:
+            resolved[locale] = {"name": live_name, "subtitle": live_subtitle}
+            live_locales.append(locale)
+            continue
+
+        primary_name = primary_info.get("name", "").strip()
+        primary_subtitle = primary_info.get("subtitle", "").strip()
+        if primary_name or primary_subtitle:
+            resolved[locale] = {"name": primary_name, "subtitle": primary_subtitle}
+            primary_locales.append(locale)
+
+    stats["source_file"] = len(file_locales)
+    stats["source_live"] = len(live_locales)
+    stats["source_primary"] = len(primary_locales)
+
+    if file_locales:
+        print("Prepared app name/subtitle from Google Sheet ASO for: " + ", ".join(sorted(file_locales)))
+    if live_locales:
+        print(
+            "Prepared app name/subtitle from App Store Connect for: "
+            + ", ".join(sorted(live_locales))
+        )
+    if primary_locales:
+        print(
+            f"Prepared app name/subtitle from primary locale {primary} for locales missing ASO content: "
+            + ", ".join(sorted(primary_locales))
+        )
+
+    return resolved, stats
+
+
 def resolve_keywords_for_locales(
     locales: list[str],
     aso_rows: dict[str, dict[str, str]],
@@ -497,14 +608,10 @@ def resolve_keywords_for_locales(
     stats = {"source_file": 0, "source_live": 0, "source_primary": 0}
 
     for locale in locales:
-        if locale in aso_rows:
-            sheet_text = aso_rows[locale].get("keywords", "").strip()
-            if sheet_text:
-                resolved[locale] = sheet_text
-                file_locales.append(locale)
-                continue
-
-        if locale in aso_rows:
+        sheet_text = aso_rows.get(locale, {}).get("keywords", "").strip() if locale in aso_rows else ""
+        if sheet_text:
+            resolved[locale] = sheet_text
+            file_locales.append(locale)
             continue
 
         live_text = ""
