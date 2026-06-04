@@ -61,11 +61,24 @@ def collect_aso_locale_issues(aso_rows, description_rows) -> dict[str, list[str]
 
     if description_rows:
         for locale, row in description_rows.items():
-            value = row.get("description", "")
-            if not value:
-                note(locale, "empty description")
-            elif len(value) > LIMITS["description"]:
+            value = row.get("description", "").strip()
+            if value and len(value) > LIMITS["description"]:
                 note(locale, f"description is {len(value)} chars; max is {LIMITS['description']}")
+
+    metadata_dir = resolve_metadata_dir()
+    if metadata_dir.exists():
+        for locale_dir in metadata_dir.iterdir():
+            if not locale_dir.is_dir() or not LOCALE_RE.match(locale_dir.name):
+                continue
+            description_path = locale_dir / "description.txt"
+            if not description_path.is_file():
+                continue
+            value = description_path.read_text(encoding="utf-8").strip()
+            if len(value) > LIMITS["description"]:
+                note(
+                    locale_dir.name,
+                    f"description is {len(value)} chars; max is {LIMITS['description']}",
+                )
 
     return issues
 

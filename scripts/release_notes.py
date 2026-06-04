@@ -194,7 +194,7 @@ def fetch_live_version_localization_attributes(root_dir: Path) -> dict[str, dict
 
     localizations = client.get_all(
         f"/appStoreVersions/{version['id']}/appStoreVersionLocalizations"
-        "?fields[appStoreVersionLocalizations]=locale,whatsNew,supportUrl,marketingUrl"
+        "?fields[appStoreVersionLocalizations]=locale,description,whatsNew,supportUrl,marketingUrl"
     )
 
     attributes_by_locale: dict[str, dict[str, str]] = {
@@ -207,6 +207,10 @@ def fetch_live_version_localization_attributes(root_dir: Path) -> dict[str, dict
             continue
 
         entry: dict[str, str] = {}
+        description = (attributes.get("description") or "").strip()
+        if description:
+            entry["description"] = description
+
         whats_new = (attributes.get("whatsNew") or "").strip()
         if whats_new:
             entry["whats_new"] = whats_new
@@ -378,6 +382,59 @@ def resolve_release_notes_for_locales(
             else "config release_notes"
         )
         print(f"Prepared What's New from {fallback_label} for all locales.")
+
+    return resolved, stats
+
+
+def resolve_descriptions_for_locales(
+    locales: list[str],
+    description_rows: dict[str, dict[str, str]],
+    root_dir: Path,
+    live_attributes: Optional[dict[str, dict[str, str]]] = None,
+) -> tuple[dict[str, str], dict[str, int]]:
+    """Prefer Description sheet text; fall back to the latest released version per locale."""
+    live_descriptions: dict[str, str] = {}
+
+    try:
+        if live_attributes is None:
+            live_attributes = fetch_live_version_localization_attributes(root_dir)
+        live_descriptions = {
+            locale: attributes["description"]
+            for locale, attributes in live_attributes.items()
+            if locale != LIVE_ATTRIBUTES_META_KEY and attributes.get("description")
+        }
+    except AppStoreConnectError as error:
+        print(f"WARNING: Could not fetch live descriptions from App Store Connect: {error}", file=sys.stderr)
+    except requests.RequestException as error:
+        print(f"WARNING: Could not fetch live descriptions from App Store Connect: {error}", file=sys.stderr)
+
+    resolved: dict[str, str] = {}
+    file_locales: list[str] = []
+    live_locales: list[str] = []
+    stats = {"source_file": 0, "source_live": 0}
+
+    for locale in locales:
+        file_text = description_rows.get(locale, {}).get("description", "").strip()
+        if file_text:
+            resolved[locale] = file_text
+            file_locales.append(locale)
+            continue
+
+        live_text = live_descriptions.get(locale, "").strip()
+        if live_text:
+            resolved[locale] = live_text
+            live_locales.append(locale)
+
+    stats["source_file"] = len(file_locales)
+    stats["source_live"] = len(live_locales)
+
+    if file_locales:
+        print("Prepared description from Google Sheet for: " + ", ".join(sorted(file_locales)))
+    if live_locales:
+        print(
+            "Prepared description from released App Store version for: "
+            + ", ".join(sorted(live_locales))
+        )
 
     return resolved, stats
 

@@ -923,6 +923,7 @@ def prepare_metadata_files(aso_rows, description_rows):
     from release_notes import (
         apply_version_urls_to_metadata_dir,
         fetch_live_version_localization_attributes,
+        resolve_descriptions_for_locales,
         resolve_release_notes_for_locales,
     )
 
@@ -939,6 +940,12 @@ def prepare_metadata_files(aso_rows, description_rows):
         get_release_notes_fallback(),
         live_attributes=live_attributes,
     )
+    descriptions_by_locale, _description_stats = resolve_descriptions_for_locales(
+        locales,
+        description_rows,
+        REPO_ROOT,
+        live_attributes=live_attributes,
+    )
 
     for locale in locales:
         locale_dir = METADATA_DIR / locale
@@ -947,8 +954,8 @@ def prepare_metadata_files(aso_rows, description_rows):
             write_text(locale_dir / "name.txt", row.get("title", ""))
             write_text(locale_dir / "subtitle.txt", row.get("subtitle", ""))
             write_text(locale_dir / "keywords.txt", row.get("keywords", ""))
-        if locale in description_rows:
-            write_text(locale_dir / "description.txt", description_rows[locale].get("description", ""))
+        if locale in descriptions_by_locale:
+            write_text(locale_dir / "description.txt", descriptions_by_locale[locale])
         if locale in release_notes_by_locale:
             write_text(locale_dir / "release_notes.txt", release_notes_by_locale[locale])
 

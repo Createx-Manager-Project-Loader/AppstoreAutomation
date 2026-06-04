@@ -40,6 +40,8 @@ Upload steps (metadata, app name, subscriptions, screenshots, What's New) run in
 
 **Per-locale validation (default):** If a locale has invalid ASO fields (empty title, title/subtitle/keywords over App Store limits, bad keywords format, invalid subscription text, etc.), that locale is excluded from prepared `metadata/`, logged as a warning, and upload continues for all other locales. Excluded locales are listed in `automation-prepared/excluded_locales.json`. The run stops only for fatal issues (cannot read the ASO workbook, no locale rows at all, every locale invalid, missing screenshots when `prepare_screenshots` is required, etc.).
 
+**Description fallback:** For each locale, the Description sheet in the ASO workbook wins when filled in. If the sheet has no text for that locale, the automation copies `description` from the latest `READY_FOR_SALE` App Store version for the same locale (when it exists there).
+
 Set `VALIDATION_STRICT=1` to restore the old behavior: any locale validation error fails the whole run before upload.
 
 ## Connect to an app repository
