@@ -8,9 +8,9 @@ cd "$REPO_ROOT"
 source "$SCRIPT_DIR/load_account_config.sh"
 
 FASTLANE_METADATA_TIMEOUT_SECONDS="${FASTLANE_METADATA_TIMEOUT_SECONDS:-120}"
-FASTLANE_METADATA_MAX_ATTEMPTS="${FASTLANE_METADATA_MAX_ATTEMPTS:-3}"
-FASTLANE_METADATA_RETRY_DELAY_SECONDS="${FASTLANE_METADATA_RETRY_DELAY_SECONDS:-10}"
 FASTLANE_METADATA_HEARTBEAT_SECONDS="${FASTLANE_METADATA_HEARTBEAT_SECONDS:-30}"
+PREPARED_METADATA_DIR="$PREPARED_DIR/metadata"
+ONE_LOCALE_METADATA_DIR="$PREPARED_DIR/one_locale_upload_metadata"
 
 if [[ "${SKIP_PREPARE:-false}" != "true" ]]; then
   bash "$SCRIPT_DIR/prepare_metadata.sh"
@@ -51,36 +51,32 @@ run_with_timeout() {
   wait "$pid"
 }
 
-upload_metadata_with_retries() {
-  local attempt=1
+upload_locale_metadata() {
+  local locale="$1"
+  local source_locale_dir="$PREPARED_METADATA_DIR/$locale"
+  local target_locale_dir="$ONE_LOCALE_METADATA_DIR/$locale"
   local status
 
-  while true; do
-    echo "Uploading metadata with fastlane (attempt $attempt/$FASTLANE_METADATA_MAX_ATTEMPTS, timeout ${FASTLANE_METADATA_TIMEOUT_SECONDS}s)..."
-    set +e
-    ASC_METADATA_ITEMS="$METADATA_ITEMS" \
-      run_with_timeout "$FASTLANE_METADATA_TIMEOUT_SECONDS" \
-      run_fastlane ios upload_metadata
-    status=$?
-    set -e
+  rm -rf "$ONE_LOCALE_METADATA_DIR"
+  mkdir -p "$target_locale_dir"
+  cp -R "$source_locale_dir/." "$target_locale_dir/"
 
-    if [[ "$status" -eq 0 ]]; then
-      return 0
-    fi
+  echo "Uploading metadata for $locale (timeout ${FASTLANE_METADATA_TIMEOUT_SECONDS}s)..."
+  set +e
+  ASC_METADATA_ITEMS="$METADATA_ITEMS" \
+    METADATA_PATH="$ONE_LOCALE_METADATA_DIR" \
+    run_with_timeout "$FASTLANE_METADATA_TIMEOUT_SECONDS" \
+    run_fastlane ios upload_metadata_for_locale
+  status=$?
+  set -e
 
-    echo "ERROR: fastlane metadata upload failed with exit code $status (attempt $attempt/$FASTLANE_METADATA_MAX_ATTEMPTS)." >&2
-
-    if [[ "$attempt" -ge "$FASTLANE_METADATA_MAX_ATTEMPTS" ]]; then
-      echo "Failed to upload metadata after $FASTLANE_METADATA_MAX_ATTEMPTS attempt(s)."
-      report_merge metadata_upload status=failed error="fastlane exited with code $status"
-      report_error "Metadata upload failed after $FASTLANE_METADATA_MAX_ATTEMPTS attempt(s)."
-      return "$status"
-    fi
-
-    attempt=$((attempt + 1))
-    echo "Retrying metadata upload after $FASTLANE_METADATA_RETRY_DELAY_SECONDS second(s)..."
-    sleep "$FASTLANE_METADATA_RETRY_DELAY_SECONDS"
-  done
+  if [[ "$status" -eq 0 ]]; then
+    uploaded_locales+=("$locale")
+    echo "Uploaded metadata for $locale."
+  else
+    failed_locales+=("$locale")
+    echo "WARNING: failed to upload metadata for $locale (exit $status). Continuing with next locale." >&2
+  fi
 }
 
 has_description_metadata() {
@@ -110,21 +106,45 @@ fi
 ASC_METADATA_ITEMS="$METADATA_ITEMS" python3 "$SCRIPT_DIR/build_upload_metadata.py"
 echo "Metadata upload items selected: $METADATA_ITEMS"
 
-prepared_locale_count=0
-if [[ -d "$PREPARED_DIR/metadata" ]]; then
-  for locale_dir in "$PREPARED_DIR/metadata"/*; do
+candidate_locales=()
+uploaded_locales=()
+failed_locales=()
+
+if [[ -d "$PREPARED_METADATA_DIR" ]]; then
+  for locale_dir in "$PREPARED_METADATA_DIR"/*; do
     [[ -d "$locale_dir" ]] || continue
-    prepared_locale_count=$((prepared_locale_count + 1))
+    candidate_locales+=("$(basename "$locale_dir")")
   done
 fi
 
-metadata_upload_status=0
-upload_metadata_with_retries || metadata_upload_status=$?
-if [[ "$metadata_upload_status" -ne 0 ]]; then
-  report_merge metadata_upload status=failed error="fastlane exited with code $metadata_upload_status"
-  report_error "Metadata upload failed with exit code $metadata_upload_status."
-  exit "$metadata_upload_status"
+total_locales="${#candidate_locales[@]}"
+if [[ "$total_locales" -eq 0 ]]; then
+  echo "No metadata locales found in $PREPARED_METADATA_DIR."
 fi
 
-report_merge metadata_upload status=success locales="$prepared_locale_count" items="$METADATA_ITEMS"
-echo "Metadata upload completed for $prepared_locale_count locale(s): $METADATA_ITEMS"
+for locale in "${candidate_locales[@]}"; do
+  upload_locale_metadata "$locale"
+done
+
+rm -rf "$ONE_LOCALE_METADATA_DIR"
+
+report_merge metadata_upload \
+  total="$total_locales" \
+  uploaded="${#uploaded_locales[@]}" \
+  failed="${#failed_locales[@]}" \
+  locales="${#uploaded_locales[@]}" \
+  items="$METADATA_ITEMS" \
+  uploaded_locales="${uploaded_locales[*]-}" \
+  failed_locales="${failed_locales[*]-}"
+
+echo "Sequential metadata upload completed: ${#uploaded_locales[@]} / $total_locales locale(s): $METADATA_ITEMS"
+
+if [[ "${#failed_locales[@]}" -gt 0 ]]; then
+  echo "ERROR: Failed metadata locale(s): ${failed_locales[*]}" >&2
+  report_warning "Metadata upload failed for ${#failed_locales[@]} locale(s): ${failed_locales[*]}"
+  report_error "Metadata upload failed for ${#failed_locales[@]} locale(s): ${failed_locales[*]}"
+  report_merge metadata_upload status=partial
+  exit 1
+fi
+
+report_merge metadata_upload status=success

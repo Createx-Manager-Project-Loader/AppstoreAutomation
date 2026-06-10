@@ -8,11 +8,12 @@ report_continue_step() {
   local label="$1"
   shift
 
-  if "$@"; then
+  local code=0
+  "$@" || code=$?
+  if [[ "$code" -eq 0 ]]; then
     return 0
   fi
 
-  local code=$?
   AUTOMATION_HAD_FAILURES=true
   echo "WARNING: ${label} failed (exit ${code}). Continuing with remaining steps." >&2
   report_warning "${label} failed (exit ${code}); continuing with remaining steps."

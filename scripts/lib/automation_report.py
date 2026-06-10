@@ -246,12 +246,18 @@ def print_final_report() -> int:
                 lines.append("  Skipped")
         elif metadata.get("status") == "success":
             items = metadata.get("items", "")
-            locales = metadata.get("locales", "—")
-            lines.append(f"  Status: SUCCESS ({locales} locale(s))")
+            total = metadata.get("total", metadata.get("locales", "—"))
+            uploaded = metadata.get("uploaded", metadata.get("locales", 0))
+            lines.append(_ratio_line(uploaded, total, "Uploaded"))
             if items:
                 lines.append(f"  Items:  {items}")
-        elif metadata.get("status") == "failed":
-            lines.append("  Status: FAILED")
+        elif metadata.get("status") in {"failed", "partial"}:
+            total = metadata.get("total", 0)
+            uploaded = metadata.get("uploaded", 0)
+            failed = metadata.get("failed", 0)
+            lines.append(_ratio_line(uploaded, total, "Uploaded"))
+            if failed:
+                lines.append(f"  Failed: {failed}{_list_suffix(metadata.get('failed_locales', []))}")
             if metadata.get("error"):
                 lines.append(f"  Error:  {metadata['error']}")
 
@@ -328,6 +334,10 @@ def print_final_report() -> int:
             if "locales_total" in whats_new:
                 prepared = whats_new.get("release_notes_prepared", whats_new.get("locales_total"))
                 lines.append(_ratio_line(prepared, whats_new["locales_total"], "Release notes prepared"))
+            if "uploaded" in whats_new:
+                lines.append(_ratio_line(whats_new.get("uploaded"), whats_new.get("locales_total"), "Uploaded"))
+            if whats_new.get("failed"):
+                lines.append(f"  Failed: {whats_new['failed']}{_list_suffix(whats_new.get('failed_locales', []))}")
             if whats_new.get("bootstrap_locales"):
                 lines.append(f"  Bootstrapped locale folders: {whats_new['bootstrap_locales']}")
             if whats_new.get("source_live"):

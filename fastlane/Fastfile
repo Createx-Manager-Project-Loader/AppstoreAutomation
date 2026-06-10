@@ -39,7 +39,7 @@ platform :ios do
     deliver(
       api_key: app_store_api_key,
       app_identifier: ENV.fetch("APP_IDENTIFIER"),
-      metadata_path: File.join(prepared_dir, "metadata"),
+      metadata_path: ENV.fetch("METADATA_PATH") { File.join(prepared_dir, "metadata") },
       screenshots_path: File.join(prepared_dir, "screenshots"),
       skip_binary_upload: true,
       skip_screenshots: true,
@@ -49,6 +49,23 @@ platform :ios do
       run_precheck_before_submit: false,
       precheck_include_in_app_purchases: false,
       individual_metadata_items: ENV.fetch("ASC_METADATA_ITEMS", "name,subtitle,keywords,description,release_notes").split(","),
+      force: true
+    )
+  end
+
+  desc "Upload App Store Connect metadata for one locale"
+  lane :upload_metadata_for_locale do
+    deliver(
+      api_key: app_store_api_key,
+      app_identifier: ENV.fetch("APP_IDENTIFIER"),
+      metadata_path: ENV.fetch("METADATA_PATH"),
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_app_version_update: true,
+      submit_for_review: false,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
+      individual_metadata_items: ENV.fetch("ASC_METADATA_ITEMS", "subtitle,keywords,description,release_notes").split(","),
       force: true
     )
   end
@@ -66,6 +83,23 @@ platform :ios do
       run_precheck_before_submit: false,
       precheck_include_in_app_purchases: false,
       individual_metadata_items: ["name", "subtitle"],
+      force: true
+    )
+  end
+
+  desc "Update What's New text in App Store Connect for one locale"
+  lane :update_whats_new_for_locale do
+    deliver(
+      api_key: app_store_api_key,
+      app_identifier: ENV.fetch("APP_IDENTIFIER"),
+      metadata_path: ENV.fetch("METADATA_PATH"),
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_app_version_update: true,
+      submit_for_review: false,
+      individual_metadata_items: ["release_notes", "support_url", "marketing_url"],
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
       force: true
     )
   end
