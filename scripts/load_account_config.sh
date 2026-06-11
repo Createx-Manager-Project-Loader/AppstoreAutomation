@@ -6,10 +6,16 @@ source "$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/lib/paths.sh"
 
 ACCOUNT_CONFIG_FILE="${ACCOUNT_CONFIG_FILE:-$REPO_ROOT/account.env}"
 
+log_paths
+log_info "Loading App Store Connect account config"
+
 if [[ -f "$ACCOUNT_CONFIG_FILE" ]]; then
+  log_debug "Sourcing account config: $ACCOUNT_CONFIG_FILE"
   set -a
   source "$ACCOUNT_CONFIG_FILE"
   set +a
+else
+  log_debug "Account config file not found: $ACCOUNT_CONFIG_FILE"
 fi
 
 ASC_KEY_ID="${ASC_KEY_ID:-${APPSTORE_CONNECT_API_KEY_ID:-}}"
@@ -43,3 +49,6 @@ if [[ ! -f "$ASC_KEY_PATH" ]]; then
 fi
 
 export ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH APP_IDENTIFIER
+log_info "App Store Connect target app: $APP_IDENTIFIER"
+log_info "ASC key id: $ASC_KEY_ID"
+log_info "ASC key path: $ASC_KEY_PATH"

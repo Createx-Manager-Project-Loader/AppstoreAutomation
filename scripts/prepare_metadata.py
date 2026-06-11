@@ -1096,8 +1096,13 @@ def record_prepare_report(
 
 
 def main():
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    from log import log_info, log_step, log_step_done, log_warn
+
+    log_step("Prepare metadata and screenshots")
     if is_whats_new_only_mode():
-        print("Source mode: What's New only. Skipping ASO and screenshot preparation.")
+        log_info("Source mode: What's New only. Skipping ASO and screenshot preparation.")
+        log_step_done("Prepare metadata and screenshots", 0)
         return
 
     aso_skipped = not has_aso_source()
@@ -1159,13 +1164,14 @@ def main():
         screenshot_files=screenshot_file_count,
         version_url_files=version_url_files,
     )
-    print(
+    log_info(
         "Prepare finished: "
         f"ASO locales={aso_locale_count}, descriptions={description_locale_count}, "
         f"screenshot locales={screenshot_locale_count}, screenshot files={screenshot_file_count}, "
         f"subscription locales={subscription_locale_count}, "
         f"Support/Marketing URL files={version_url_files}."
     )
+    log_step_done("Prepare metadata and screenshots", 0)
 
 
 if __name__ == "__main__":

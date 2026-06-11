@@ -61,7 +61,12 @@ upload_locale_metadata() {
   mkdir -p "$target_locale_dir"
   cp -R "$source_locale_dir/." "$target_locale_dir/"
 
-  echo "Uploading metadata for $locale (timeout ${FASTLANE_METADATA_TIMEOUT_SECONDS}s)..."
+  local safe_locale="${locale//[^A-Za-z0-9_.-]/_}"
+  AUTOMATION_FASTLANE_LOG="$PREPARED_DIR/fastlane_metadata_${safe_locale}.log"
+
+  log_step "Metadata upload: $locale"
+  log_locale_dir_summary "$target_locale_dir"
+  log_info "Uploading metadata for $locale (items: $METADATA_ITEMS, timeout ${FASTLANE_METADATA_TIMEOUT_SECONDS}s)..."
   set +e
   ASC_METADATA_ITEMS="$METADATA_ITEMS" \
     METADATA_PATH="$ONE_LOCALE_METADATA_DIR" \
@@ -69,13 +74,19 @@ upload_locale_metadata() {
     run_fastlane ios upload_metadata_for_locale
   status=$?
   set -e
+  unset AUTOMATION_FASTLANE_LOG
+
+  local log_file="$AUTOMATION_FASTLANE_LOG"
 
   if [[ "$status" -eq 0 ]]; then
     uploaded_locales+=("$locale")
-    echo "Uploaded metadata for $locale."
+    log_info "Uploaded metadata for $locale."
+    log_step_done "Metadata upload: $locale" 0
   else
     failed_locales+=("$locale")
-    echo "WARNING: failed to upload metadata for $locale (exit $status). Continuing with next locale." >&2
+    report_locale_failure metadata_upload "$locale" metadata "$status" "$log_file" >/dev/null
+    log_warn "Failed to upload metadata for $locale (exit $status). Continuing with next locale."
+    log_step_done "Metadata upload: $locale" "$status"
   fi
 }
 
@@ -103,8 +114,9 @@ if [[ "${INCLUDE_APP_NAME:-false}" == "true" ]]; then
   METADATA_ITEMS="name,$METADATA_ITEMS"
 fi
 
+log_step "Metadata upload"
 ASC_METADATA_ITEMS="$METADATA_ITEMS" python3 "$SCRIPT_DIR/build_upload_metadata.py"
-echo "Metadata upload items selected: $METADATA_ITEMS"
+log_info "Metadata upload items selected: $METADATA_ITEMS"
 
 candidate_locales=()
 uploaded_locales=()

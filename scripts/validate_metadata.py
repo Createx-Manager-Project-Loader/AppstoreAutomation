@@ -22,6 +22,7 @@ from prepare_metadata import (
 from release_notes import resolve_release_notes_for_locales
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from log import log_debug, log_error, log_info, log_step, log_step_done, log_warn
 from paths import PREPARED_DIR
 
 LIMITS = {
@@ -206,7 +207,19 @@ def metadata_locales():
     return sorted(path.name for path in metadata_dir.iterdir() if path.is_dir() and LOCALE_RE.match(path.name))
 
 
-def validate_whats_new(errors, locales=None):
+def prepared_release_note_locales(locales: list[str] | None = None) -> list[str]:
+    metadata_dir = resolve_metadata_dir()
+    if locales is None:
+        locales = metadata_locales()
+    prepared = []
+    for locale in locales:
+        release_notes_path = metadata_dir / locale / "release_notes.txt"
+        if release_notes_path.is_file() and release_notes_path.read_text(encoding="utf-8").strip():
+            prepared.append(locale)
+    return prepared
+
+
+def validate_whats_new(errors, warnings, locales=None):
     if locales is None:
         locales = metadata_locales()
     if not locales:
@@ -216,8 +229,23 @@ def validate_whats_new(errors, locales=None):
         )
         return
 
+    prepared_on_disk = prepared_release_note_locales(locales)
+    if prepared_on_disk:
+        warnings.append(
+            "What's New release_notes.txt already prepared for "
+            + f"{len(prepared_on_disk)} locale(s); upload can continue."
+        )
+        return
+
     resolved, _stats = resolve_release_notes_for_locales(locales, REPO_ROOT, get_release_notes_fallback())
     if not resolved:
+        fallback = get_release_notes_fallback().strip()
+        if fallback:
+            warnings.append(
+                "What's New validation could not resolve per-locale text; "
+                "config/workflow release_notes fallback will be used during upload."
+            )
+            return
         errors.append("No What's New text found in live App Store version, base locale, or config release_notes")
 
 
@@ -231,35 +259,40 @@ def record_validation_report(**fields) -> None:
 
 
 def main():
+    log_step("Metadata validation")
     errors = []
     warnings = []
     locale_issues: dict[str, list[str]] = {}
 
     if os.environ.get("WHATS_NEW_VALIDATE_ONLY", "").lower() in {"1", "true", "yes", "on"}:
-        validate_whats_new(errors)
+        validate_whats_new(errors, warnings)
         locales = metadata_locales()
         if errors:
             for error in errors:
-                print(f"ERROR: {error}", file=sys.stderr)
+                log_error(error)
             record_validation_report(
                 passed=False,
                 mode="whats_new",
                 whats_new_locales=len(locales),
             )
+            log_step_done("Metadata validation", 1)
             sys.exit(1)
-        print("Validation passed for What's New upload.")
+        for warning in warnings:
+            log_warn(warning)
+        log_info("Validation passed for What's New upload.")
         record_validation_report(
             passed=True,
             mode="whats_new",
             whats_new_locales=len(locales),
         )
+        log_step_done("Metadata validation", 0)
         return
 
     plan = resolve_run_plan()
     mode = plan["mode"]
 
     if mode == "whats_new":
-        validate_whats_new(errors)
+        validate_whats_new(errors, warnings)
         locales = metadata_locales()
         if errors:
             for error in errors:
@@ -324,11 +357,7 @@ def main():
         if not locales:
             errors.append("No locales found for What's New validation.")
         else:
-            resolved, _stats = resolve_release_notes_for_locales(locales, REPO_ROOT, get_release_notes_fallback())
-            if not resolved:
-                errors.append(
-                    "No What's New text found in live App Store version, base locale, or config release_notes"
-                )
+            validate_whats_new(errors, warnings, locales)
 
     aso_locales = set(aso_rows)
     description_locales = set(description_rows)
@@ -394,18 +423,26 @@ def main():
 
     if errors:
         for error in errors:
-            print(f"ERROR: {error}", file=sys.stderr)
+            log_error(error)
         record_validation_report(**validation_fields)
+        log_step_done("Metadata validation", 1)
         sys.exit(1)
 
+    for warning in warnings:
+        log_warn(warning)
+
     if excluded_locales:
-        print(
+        log_info(
             f"Validation passed for RUN_MODE={mode} with {len(excluded_locales)} excluded locale(s); "
             f"continuing upload for {len(metadata_locales())} locale(s)."
         )
+        for locale, messages in sorted(excluded_locales.items()):
+            log_warn(f"Excluded locale {locale}: {'; '.join(messages)}")
     else:
-        print(f"Validation passed for RUN_MODE={mode}.")
+        log_info(f"Validation passed for RUN_MODE={mode}.")
+    log_info(f"Validation summary: {json.dumps(validation_fields, ensure_ascii=False)}")
     record_validation_report(**validation_fields)
+    log_step_done("Metadata validation", 0)
 
 
 if __name__ == "__main__":

@@ -9,13 +9,16 @@ report_continue_step() {
   shift
 
   local code=0
+  log_step "$label"
+  log_info "Command: $*"
   "$@" || code=$?
+  log_step_done "$label" "$code"
   if [[ "$code" -eq 0 ]]; then
     return 0
   fi
 
   AUTOMATION_HAD_FAILURES=true
-  echo "WARNING: ${label} failed (exit ${code}). Continuing with remaining steps." >&2
+  log_warn "${label} failed (exit ${code}). Continuing with remaining steps."
   report_warning "${label} failed (exit ${code}); continuing with remaining steps."
   return 0
 }

@@ -46,6 +46,11 @@ on_automation_exit() {
 trap on_automation_exit EXIT
 
 report_init
+log_step "App Store automation run"
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  log_info "GitHub Actions CI console logging enabled (workflow job output)"
+fi
+log_paths
 
 eval "$(AUTOMATION_SCRIPTS_DIR="$SCRIPT_DIR" python3 - <<'PY'
 import os
@@ -74,6 +79,10 @@ source_mode_label() {
 }
 
 echo "RUN_MODE=$MODE ($(source_mode_label))"
+log_info "RUN_MODE=$MODE ($(source_mode_label))"
+log_info "PREPARE_ASO=$PREPARE_ASO PREPARE_SCREENSHOTS=$PREPARE_SCREENSHOTS"
+log_info "RUN_METADATA=$RUN_METADATA RUN_APP_INFO=$RUN_APP_INFO RUN_SUBSCRIPTIONS=$RUN_SUBSCRIPTIONS"
+log_info "RUN_SCREENSHOTS=$RUN_SCREENSHOTS RUN_WHATS_NEW=$RUN_WHATS_NEW"
 
 run_whats_new_only() {
   echo "Step 1/2: Preparing What's New upload..."
@@ -103,7 +112,7 @@ run_step() {
 
 if [[ "$PREPARE_ASO" == "true" || "$PREPARE_SCREENSHOTS" == "true" ]]; then
   run_step "Preparing metadata and screenshots..."
-  bash "$SCRIPT_DIR/prepare_metadata.sh"
+  report_continue_step "Metadata preparation" bash "$SCRIPT_DIR/prepare_metadata.sh"
 fi
 
 run_step "Validating inputs..."
@@ -111,7 +120,7 @@ report_continue_step "Input validation" bash "$SCRIPT_DIR/validate_metadata.sh"
 
 if [[ "$RUN_METADATA" == "true" || "$RUN_WHATS_NEW" == "true" || "$RUN_SCREENSHOTS" == "true" || "$RUN_APP_INFO" == "true" ]]; then
   echo "Ensuring editable App Store version exists..."
-  bash "$SCRIPT_DIR/ensure_editable_app_store_version.sh"
+  report_continue_step "Editable App Store version" bash "$SCRIPT_DIR/ensure_editable_app_store_version.sh"
 fi
 
 if [[ "$RUN_METADATA" == "true" ]]; then

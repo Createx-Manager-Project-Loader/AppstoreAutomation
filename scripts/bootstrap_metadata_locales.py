@@ -31,7 +31,6 @@ def main() -> int:
         issuer_id=require_env("ASC_ISSUER_ID"),
         key_path=key_path,
         timeout=60,
-        max_retries=5,
     )
 
     app = find_app(client, require_env("APP_IDENTIFIER"))

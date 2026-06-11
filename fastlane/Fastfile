@@ -87,6 +87,23 @@ platform :ios do
     )
   end
 
+  desc "Upload app subtitle for one locale"
+  lane :upload_app_subtitle_for_locale do
+    deliver(
+      api_key: app_store_api_key,
+      app_identifier: ENV.fetch("APP_IDENTIFIER"),
+      metadata_path: ENV.fetch("METADATA_PATH"),
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_app_version_update: true,
+      submit_for_review: false,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
+      individual_metadata_items: ["subtitle"],
+      force: true
+    )
+  end
+
   desc "Update What's New text in App Store Connect for one locale"
   lane :update_whats_new_for_locale do
     deliver(

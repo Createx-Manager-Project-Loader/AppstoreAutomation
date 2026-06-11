@@ -145,6 +145,25 @@ def _list_suffix(items: Any, limit: int = 8) -> str:
     return f" [{suffix}]"
 
 
+def _append_failed_locale_reasons(lines: list[str], section: dict[str, Any]) -> None:
+    reasons = section.get("failed_locale_reasons")
+    if not isinstance(reasons, dict) or not reasons:
+        return
+
+    from failure_reasons import format_failure_line
+
+    failed_list = _normalize_locale_list(section.get("failed_locales", []))
+    ordered = failed_list + [locale for locale in sorted(reasons) if locale not in failed_list]
+    if not ordered:
+        ordered = sorted(reasons)
+
+    lines.append("  Failure reasons:")
+    for locale in ordered:
+        reason = reasons.get(locale)
+        if isinstance(reason, dict):
+            lines.append(format_failure_line(locale, reason))
+
+
 def print_final_report() -> int:
     report = load_report()
     if not report:
@@ -258,6 +277,7 @@ def print_final_report() -> int:
             lines.append(_ratio_line(uploaded, total, "Uploaded"))
             if failed:
                 lines.append(f"  Failed: {failed}{_list_suffix(metadata.get('failed_locales', []))}")
+                _append_failed_locale_reasons(lines, metadata)
             if metadata.get("error"):
                 lines.append(f"  Error:  {metadata['error']}")
 
@@ -280,6 +300,7 @@ def print_final_report() -> int:
                 lines.append(f"  Skipped (empty name): {skipped}")
             if failed:
                 lines.append(f"  Failed: {failed}{_list_suffix(app_info.get('failed_locales', []))}")
+                _append_failed_locale_reasons(lines, app_info)
 
     subscriptions = sections.get("subscriptions") or {}
     if subscriptions or plan.get("run_subscriptions"):
@@ -320,6 +341,7 @@ def print_final_report() -> int:
             lines.append(_ratio_line(uploaded, total, "Uploaded"))
             if failed:
                 lines.append(f"  Failed: {failed}{_list_suffix(screenshots.get('failed_locales', []))}")
+                _append_failed_locale_reasons(lines, screenshots)
 
     whats_new = sections.get("whats_new") or {}
     if whats_new or plan.get("run_whats_new"):
@@ -338,6 +360,7 @@ def print_final_report() -> int:
                 lines.append(_ratio_line(whats_new.get("uploaded"), whats_new.get("locales_total"), "Uploaded"))
             if whats_new.get("failed"):
                 lines.append(f"  Failed: {whats_new['failed']}{_list_suffix(whats_new.get('failed_locales', []))}")
+                _append_failed_locale_reasons(lines, whats_new)
             if whats_new.get("bootstrap_locales"):
                 lines.append(f"  Bootstrapped locale folders: {whats_new['bootstrap_locales']}")
             if whats_new.get("source_live"):

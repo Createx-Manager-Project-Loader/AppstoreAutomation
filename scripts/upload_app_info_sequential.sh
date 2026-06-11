@@ -11,6 +11,7 @@ DELAY_SECONDS="${APP_INFO_UPLOAD_DELAY_SECONDS:-5}"
 cd "$REPO_ROOT"
 source "$SCRIPT_DIR/load_account_config.sh"
 
+log_step "App name / subtitle upload"
 if [[ "${SKIP_PREPARE:-false}" != "true" ]]; then
   bash "$SCRIPT_DIR/prepare_metadata.sh"
 fi
@@ -20,34 +21,74 @@ uploaded_locales=()
 skipped_locales=()
 candidate_locales=()
 
-upload_locale() {
+prepare_locale_dir() {
   local locale="$1"
+  local include_name="${2:-false}"
+  local include_subtitle="${3:-false}"
   local source_locale_dir="$SOURCE_METADATA_DIR/$locale"
   local target_locale_dir="$ONE_LOCALE_METADATA_DIR/$locale"
 
   rm -rf "$ONE_LOCALE_METADATA_DIR"
   mkdir -p "$target_locale_dir"
 
-  if [[ -s "$source_locale_dir/name.txt" ]]; then
+  if [[ "$include_name" == "true" && -s "$source_locale_dir/name.txt" ]]; then
     cp "$source_locale_dir/name.txt" "$target_locale_dir/name.txt"
-  else
-    echo "Skipping $locale: missing or empty name.txt"
+  fi
+
+  if [[ "$include_subtitle" == "true" && -s "$source_locale_dir/subtitle.txt" ]]; then
+    cp "$source_locale_dir/subtitle.txt" "$target_locale_dir/subtitle.txt"
+  fi
+}
+
+upload_locale() {
+  local locale="$1"
+  local source_locale_dir="$SOURCE_METADATA_DIR/$locale"
+  local has_name=false
+  local has_subtitle=false
+  local lane="upload_app_info_for_locale"
+
+  [[ -s "$source_locale_dir/name.txt" ]] && has_name=true
+  [[ -s "$source_locale_dir/subtitle.txt" ]] && has_subtitle=true
+
+  if [[ "$has_name" == "false" && "$has_subtitle" == "false" ]]; then
+    echo "Skipping $locale: missing name.txt and subtitle.txt"
     skipped_locales+=("$locale")
     return 0
   fi
 
-  if [[ -s "$source_locale_dir/subtitle.txt" ]]; then
-    cp "$source_locale_dir/subtitle.txt" "$target_locale_dir/subtitle.txt"
+  local safe_locale="${locale//[^A-Za-z0-9_.-]/_}"
+  AUTOMATION_FASTLANE_LOG="$PREPARED_DIR/fastlane_app_info_${safe_locale}.log"
+
+  if [[ "$has_name" == "true" && "$has_subtitle" == "true" ]]; then
+    prepare_locale_dir "$locale" true true
+    log_step "App info upload: $locale (name + subtitle)"
+  elif [[ "$has_subtitle" == "true" ]]; then
+    prepare_locale_dir "$locale" false true
+    lane="upload_app_subtitle_for_locale"
+    log_step "App info upload: $locale (subtitle only)"
+  else
+    prepare_locale_dir "$locale" true false
+    log_step "App info upload: $locale (name only)"
   fi
 
-  echo "Uploading app name/subtitle for $locale..."
-  if METADATA_PATH="$ONE_LOCALE_METADATA_DIR" run_fastlane ios upload_app_info_for_locale; then
+  log_locale_dir_summary "$ONE_LOCALE_METADATA_DIR/$locale"
+  log_info "Fastlane lane: ios $lane"
+
+  local log_file="$AUTOMATION_FASTLANE_LOG"
+  local included_name_flag=false
+  [[ "$has_name" == "true" ]] && included_name_flag=true
+
+  if METADATA_PATH="$ONE_LOCALE_METADATA_DIR" run_fastlane ios "$lane"; then
     uploaded_locales+=("$locale")
-    echo "Uploaded app info for $locale."
+    log_info "Uploaded app info for $locale."
+    log_step_done "App info upload: $locale" 0
   else
     failed_locales+=("$locale")
-    echo "WARNING: failed to upload app info for $locale. Continuing with next locale."
+    report_locale_failure app_info "$locale" app_info 1 "$log_file" "$included_name_flag" >/dev/null
+    log_warn "Failed to upload app info for $locale. Continuing with next locale."
+    log_step_done "App info upload: $locale" 1
   fi
+  unset AUTOMATION_FASTLANE_LOG
 }
 
 for locale_dir in "$SOURCE_METADATA_DIR"/*; do
@@ -79,7 +120,7 @@ report_merge app_info \
 
 echo "Uploaded app info locale(s): ${uploaded_locales[*]:-none} (${#uploaded_locales[@]} / $total_locales)"
 if [[ "${#skipped_locales[@]}" -gt 0 ]]; then
-  echo "Skipped app info locale(s) (empty name): ${skipped_locales[*]}"
+  echo "Skipped app info locale(s) (empty name and subtitle): ${skipped_locales[*]}"
 fi
 if [[ "${#failed_locales[@]}" -gt 0 ]]; then
   echo "ERROR: Failed app info locale(s): ${failed_locales[*]}" >&2

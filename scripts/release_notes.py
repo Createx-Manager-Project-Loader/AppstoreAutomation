@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import random
 import re
 import sys
 import time
@@ -26,9 +25,8 @@ class AppStoreConnectError(RuntimeError):
 
 
 class AppStoreConnectClient:
-    def __init__(self, key_id: str, issuer_id: str, key_path: Path, timeout: int = 60, max_retries: int = 5) -> None:
+    def __init__(self, key_id: str, issuer_id: str, key_path: Path, timeout: int = 60) -> None:
         self.timeout = timeout
-        self.max_retries = max_retries
         self.session = requests.Session()
         self.token = self.create_token(key_id, issuer_id, key_path)
 
@@ -49,6 +47,9 @@ class AppStoreConnectClient:
         return jwt.encode(payload, key_path.read_text(encoding="utf-8"), algorithm="ES256", headers=headers)
 
     def request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+        from log import log_api_request, log_api_response, log_info
+
         url = path if path.startswith("http") else f"{API_BASE_URL}{path}"
         headers = kwargs.pop("headers", {})
         headers.setdefault("Authorization", f"Bearer {self.token}")
@@ -57,36 +58,30 @@ class AppStoreConnectClient:
         kwargs["headers"] = headers
         kwargs.setdefault("timeout", self.timeout)
 
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                response = self.session.request(method, url, **kwargs)
-            except requests.RequestException as error:
-                if attempt == self.max_retries:
-                    raise AppStoreConnectError(f"{method} {url} failed: {error}") from error
-                self.sleep_before_retry(attempt, None)
-                continue
+        log_api_request(method, url)
+        try:
+            response = self.session.request(method, url, **kwargs)
+        except requests.RequestException as error:
+            log_api_response(method, url, 0, str(error))
+            raise AppStoreConnectError(f"{method} {url} failed: {error}") from error
 
-            if response.status_code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
-                self.sleep_before_retry(attempt, response)
-                continue
+        if response.status_code == 204:
+            log_api_response(method, url, response.status_code)
+            return {}
 
-            if response.status_code == 204:
-                return {}
+        if not response.ok:
+            log_api_response(method, url, response.status_code, response.text)
+            raise AppStoreConnectError(f"{method} {url} failed with {response.status_code}: {response.text}")
 
-            if not response.ok:
-                raise AppStoreConnectError(f"{method} {url} failed with {response.status_code}: {response.text}")
+        log_api_response(method, url, response.status_code)
+        if method == "GET":
+            payload = response.json() if response.content else {}
+            data = payload.get("data", [])
+            if isinstance(data, list):
+                log_info(f"ASC API {method} {url} returned {len(data)} item(s)")
+            return payload
 
-            return response.json() if response.content else {}
-
-        raise AppStoreConnectError(f"{method} {url} failed after {self.max_retries} attempts")
-
-    def sleep_before_retry(self, attempt: int, response: Optional[requests.Response]) -> None:
-        retry_after = response.headers.get("Retry-After") if response is not None else None
-        if retry_after and retry_after.isdigit():
-            delay = int(retry_after)
-        else:
-            delay = min(30, (2 ** (attempt - 1)) + random.random())
-        time.sleep(delay)
+        return response.json() if response.content else {}
 
     def get_all(self, path: str) -> list[dict[str, Any]]:
         results = []
@@ -264,12 +259,19 @@ def fetch_app_info_localization_attributes(root_dir: Path) -> dict[str, dict[str
 
     app = find_app(client, bundle_id)
     primary_locale = (app.get("attributes", {}).get("primaryLocale") or base_locale()).strip()
-    app_infos = client.get_all(f"/apps/{app['id']}/appInfos?filter[platform]=IOS")
+    app_infos = client.get_all(f"/apps/{app['id']}/appInfos")
     if not app_infos:
         return {LIVE_ATTRIBUTES_META_KEY: {"primary_locale": primary_locale}}
 
+    ios_app_infos = [
+        info
+        for info in app_infos
+        if str(info.get("attributes", {}).get("platform", "")).upper() == "IOS"
+    ]
+    app_info = (ios_app_infos or app_infos)[0]
+
     localizations = client.get_all(
-        f"/appInfos/{app_infos[0]['id']}/appInfoLocalizations"
+        f"/appInfos/{app_info['id']}/appInfoLocalizations"
         "?fields[appInfoLocalizations]=locale,name,subtitle"
     )
 
@@ -435,9 +437,6 @@ def resolve_release_notes_for_locales(
         if live_text:
             resolved[locale] = live_text
             live_locales.append(locale)
-            continue
-
-        if released_version_has_locale(live_attributes, locale):
             continue
 
         if primary_live_text:
@@ -852,10 +851,19 @@ def main() -> None:
     fallback = get_release_notes_fallback()
 
     locales = sorted(path.name for path in metadata_dir.iterdir() if path.is_dir() and LOCALE_RE.match(path.name))
+    existing_release_notes = sum(
+        1 for locale in locales if (metadata_dir / locale / "release_notes.txt").is_file()
+        and (metadata_dir / locale / "release_notes.txt").read_text(encoding="utf-8").strip()
+    )
     updated, stats = apply_release_notes_to_metadata_dir(metadata_dir, REPO_ROOT, fallback)
-    if updated == 0 and not stats.get("urls_prepared"):
+    if updated == 0 and not stats.get("urls_prepared") and existing_release_notes == 0:
         print(f"ERROR: No release notes or Support/Marketing URLs prepared in {metadata_dir}", file=sys.stderr)
         raise SystemExit(1)
+    if updated == 0 and existing_release_notes:
+        print(
+            f"Keeping existing release_notes.txt for {existing_release_notes} locale(s); "
+            "no new What's New text resolved from App Store Connect or config."
+        )
 
     from prepare_metadata import release_notes_fallback_source
 

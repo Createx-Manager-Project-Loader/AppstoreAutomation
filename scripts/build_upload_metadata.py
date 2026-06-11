@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from log import log_debug, log_info, log_locale_metadata_summary, log_step, log_step_done
 from paths import METADATA_DIR, PREPARED_DIR
 
 SOURCE_METADATA_DIR = METADATA_DIR
@@ -31,8 +32,10 @@ def requested_items():
 
 
 def main():
+    log_step("Build upload metadata")
     items = requested_items()
     allowed_files = {f"{item}.txt" for item in items}
+    log_info("Prepared upload metadata items: " + ", ".join(items))
 
     if PREPARED_METADATA_DIR.exists():
         shutil.rmtree(PREPARED_METADATA_DIR)
@@ -42,17 +45,21 @@ def main():
     locales = 0
     for locale_dir in sorted(path for path in SOURCE_METADATA_DIR.iterdir() if path.is_dir()):
         target_locale_dir = PREPARED_METADATA_DIR / locale_dir.name
+        locale_files = 0
         for source_file in sorted(locale_dir.iterdir()):
             if not source_file.is_file() or source_file.name not in allowed_files:
                 continue
             target_locale_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_file, target_locale_dir / source_file.name)
             copied += 1
+            locale_files += 1
+            log_info(f"Copied {source_file} -> {target_locale_dir / source_file.name}")
         if target_locale_dir.exists():
             locales += 1
+            log_info(f"Prepared metadata for {locale_dir.name} ({locale_files} file(s))")
+            log_locale_metadata_summary(target_locale_dir)
 
-    print("Prepared upload metadata items: " + ", ".join(items))
-    print(f"Prepared {copied} metadata file(s) for {locales} locale(s) in {PREPARED_METADATA_DIR}.")
+    log_info(f"Prepared {copied} metadata file(s) for {locales} locale(s) in {PREPARED_METADATA_DIR}.")
 
     import sys
 
@@ -67,6 +74,7 @@ def main():
             "items": ",".join(items),
         },
     )
+    log_step_done("Build upload metadata", 0)
 
 
 if __name__ == "__main__":

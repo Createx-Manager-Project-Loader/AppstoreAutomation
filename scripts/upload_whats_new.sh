@@ -9,7 +9,11 @@ ONE_LOCALE_METADATA_DIR="$PREPARED_DIR/one_locale_whats_new"
 cd "$REPO_ROOT"
 source "$SCRIPT_DIR/load_account_config.sh"
 
-bash "$SCRIPT_DIR/apply_release_notes_to_locales.sh"
+log_step "What's New upload"
+if ! bash "$SCRIPT_DIR/apply_release_notes_to_locales.sh"; then
+  log_warn "apply_release_notes_to_locales failed; continuing with any existing release_notes.txt files."
+  report_warning "apply_release_notes_to_locales failed; continuing with existing release_notes.txt when present."
+fi
 
 candidate_locales=()
 uploaded_locales=()
@@ -37,14 +41,25 @@ upload_locale() {
     cp "$source_locale_dir/marketing_url.txt" "$target_locale_dir/marketing_url.txt"
   fi
 
-  echo "Uploading What's New for $locale..."
+  local safe_locale="${locale//[^A-Za-z0-9_.-]/_}"
+  AUTOMATION_FASTLANE_LOG="$PREPARED_DIR/fastlane_whats_new_${safe_locale}.log"
+
+  log_step "What's New upload: $locale"
+  log_locale_dir_summary "$target_locale_dir"
+  log_info "Uploading What's New for $locale..."
+  local log_file="$AUTOMATION_FASTLANE_LOG"
+
   if METADATA_PATH="$ONE_LOCALE_METADATA_DIR" run_fastlane ios update_whats_new_for_locale; then
     uploaded_locales+=("$locale")
-    echo "Uploaded What's New for $locale."
+    log_info "Uploaded What's New for $locale."
+    log_step_done "What's New upload: $locale" 0
   else
     failed_locales+=("$locale")
-    echo "WARNING: failed to upload What's New for $locale. Continuing with next locale." >&2
+    report_locale_failure whats_new "$locale" whats_new 1 "$log_file" >/dev/null
+    log_warn "Failed to upload What's New for $locale. Continuing with next locale."
+    log_step_done "What's New upload: $locale" 1
   fi
+  unset AUTOMATION_FASTLANE_LOG
 }
 
 for locale in "${candidate_locales[@]}"; do
@@ -62,7 +77,7 @@ report_merge whats_new \
   uploaded_locales="${uploaded_locales[*]-}" \
   failed_locales="${failed_locales[*]-}"
 
-echo "Sequential What's New upload completed: ${#uploaded_locales[@]} / $locale_count locale(s)."
+log_info "Sequential What's New upload completed: ${#uploaded_locales[@]} / $locale_count locale(s)."
 
 if [[ "${#failed_locales[@]}" -gt 0 ]]; then
   report_merge whats_new upload_status=partial

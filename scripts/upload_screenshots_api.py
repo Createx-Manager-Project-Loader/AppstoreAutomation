@@ -3,7 +3,6 @@ import argparse
 import hashlib
 import json
 import os
-import random
 import struct
 import sys
 import time
@@ -160,9 +159,8 @@ def md5_hex(path: Path) -> str:
 
 
 class AppStoreConnectClient:
-    def __init__(self, key_id: str, issuer_id: str, key_path: Path, timeout: int = 60, max_retries: int = 5) -> None:
+    def __init__(self, key_id: str, issuer_id: str, key_path: Path, timeout: int = 60) -> None:
         self.timeout = timeout
-        self.max_retries = max_retries
         self.session = requests.Session()
         self.token = self.create_token(key_id, issuer_id, key_path)
 
@@ -183,6 +181,9 @@ class AppStoreConnectClient:
         return jwt.encode(payload, key_path.read_text(encoding="utf-8"), algorithm="ES256", headers=headers)
 
     def request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+        from log import log_api_request, log_api_response, log_info
+
         url = path if path.startswith("http") else f"{API_BASE_URL}{path}"
         headers = kwargs.pop("headers", {})
         headers.setdefault("Authorization", f"Bearer {self.token}")
@@ -191,37 +192,30 @@ class AppStoreConnectClient:
         kwargs["headers"] = headers
         kwargs.setdefault("timeout", self.timeout)
 
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                response = self.session.request(method, url, **kwargs)
-            except requests.RequestException as error:
-                if attempt == self.max_retries:
-                    raise AppStoreConnectError(f"{method} {url} failed: {error}") from error
-                self.sleep_before_retry(attempt, None)
-                continue
+        log_api_request(method, url)
+        try:
+            response = self.session.request(method, url, **kwargs)
+        except requests.RequestException as error:
+            log_api_response(method, url, 0, str(error))
+            raise AppStoreConnectError(f"{method} {url} failed: {error}") from error
 
-            if response.status_code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
-                self.sleep_before_retry(attempt, response)
-                continue
+        if response.status_code == 204:
+            log_api_response(method, url, response.status_code)
+            return {}
 
-            if response.status_code == 204:
-                return {}
+        if not response.ok:
+            log_api_response(method, url, response.status_code, response.text)
+            raise AppStoreConnectError(f"{method} {url} failed with {response.status_code}: {response.text}")
 
-            if not response.ok:
-                raise AppStoreConnectError(f"{method} {url} failed with {response.status_code}: {response.text}")
+        log_api_response(method, url, response.status_code)
+        if method == "GET":
+            payload = response.json() if response.content else {}
+            data = payload.get("data", [])
+            if isinstance(data, list):
+                log_info(f"ASC API {method} {url} returned {len(data)} item(s)")
+            return payload
 
-            return response.json() if response.content else {}
-
-        raise AppStoreConnectError(f"{method} {url} failed after {self.max_retries} attempts")
-
-    def sleep_before_retry(self, attempt: int, response: Optional[requests.Response]) -> None:
-        retry_after = response.headers.get("Retry-After") if response is not None else None
-        if retry_after and retry_after.isdigit():
-            delay = int(retry_after)
-        else:
-            delay = min(30, (2 ** (attempt - 1)) + random.random())
-        print(f"Retrying App Store Connect request after {delay:.1f} second(s)...")
-        time.sleep(delay)
+        return response.json() if response.content else {}
 
     def get_all(self, path: str) -> list[dict[str, Any]]:
         results = []
@@ -243,26 +237,15 @@ class AppStoreConnectClient:
             file.seek(offset)
             data = file.read(length)
 
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                response = self.session.request(method, url, headers=headers, data=data, timeout=self.timeout)
-            except requests.RequestException as error:
-                if attempt == self.max_retries:
-                    raise AppStoreConnectError(f"Upload failed for {image_path}: {error}") from error
-                self.sleep_before_retry(attempt, None)
-                continue
+        try:
+            response = self.session.request(method, url, headers=headers, data=data, timeout=self.timeout)
+        except requests.RequestException as error:
+            raise AppStoreConnectError(f"Upload failed for {image_path}: {error}") from error
 
-            if response.status_code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
-                self.sleep_before_retry(attempt, response)
-                continue
-
-            if not response.ok:
-                raise AppStoreConnectError(
-                    f"Upload failed for {image_path} with {response.status_code}: {response.text}"
-                )
-            return
-
-        raise AppStoreConnectError(f"Upload failed for {image_path} after {self.max_retries} attempts")
+        if not response.ok:
+            raise AppStoreConnectError(
+                f"Upload failed for {image_path} with {response.status_code}: {response.text}"
+            )
 
 
 def require_env(name: str) -> str:
@@ -672,41 +655,53 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    from log import log_debug, log_info, log_step, log_step_done, log_warn
+
     args = parse_args()
     locale_dir = args.screenshots_path / args.locale
     if not locale_dir.is_dir():
         raise AppStoreConnectError(f"Missing locale screenshot directory: {locale_dir}")
 
+    log_step(f"Screenshot API upload: {args.locale}")
+    log_info(f"Screenshots path: {locale_dir}")
     dry_run = args.dry_run or env_bool("SCREENSHOT_API_DRY_RUN")
+    if dry_run:
+        log_warn("Screenshot API dry-run enabled")
     key_path = Path(require_env("ASC_KEY_PATH"))
     client = AppStoreConnectClient(
         key_id=require_env("ASC_KEY_ID"),
         issuer_id=require_env("ASC_ISSUER_ID"),
         key_path=key_path,
         timeout=env_int("SCREENSHOT_API_REQUEST_TIMEOUT", 60),
-        max_retries=env_int("SCREENSHOT_API_MAX_REQUEST_ATTEMPTS", 5),
     )
 
     app = find_app(client, require_env("APP_IDENTIFIER"))
+    log_info(f"Resolved app id: {app['id']}")
     version = find_editable_version(client, app["id"])
     version_attributes = version.get("attributes", {})
-    print(
+    log_info(
         "Using app store version "
         f"{version_attributes.get('versionString')} ({version_attributes.get('appStoreState')})"
     )
 
     localization = find_or_create_localization(client, version["id"], args.locale, dry_run)
+    log_info(f"Using localization id {localization['id']} for {args.locale}")
     groups = grouped_images(locale_dir)
     processing_timeout = env_int("SCREENSHOT_API_PROCESSING_TIMEOUT", 180)
+    log_info(f"Screenshot groups: {', '.join(f'{key}={len(value)}' for key, value in sorted(groups.items()))}")
 
     for display_type, images in sorted(groups.items()):
-        print(f"Uploading {len(images)} screenshot(s) for {args.locale} / {display_type}...")
+        log_info(f"Uploading {len(images)} screenshot(s) for {args.locale} / {display_type}...")
+        for image in images:
+            log_info(f"Screenshot file: {image.name} ({image.stat().st_size} bytes)")
         set_id = replace_screenshot_set(client, localization["id"], display_type, dry_run)
         screenshot_ids = [upload_screenshot(client, set_id, image, dry_run) for image in images]
         order_screenshots(client, set_id, screenshot_ids, dry_run)
         wait_for_processing(client, screenshot_ids, processing_timeout, dry_run)
 
-    print(f"Uploaded screenshots for {args.locale} through App Store Connect API.")
+    log_info(f"Uploaded screenshots for {args.locale} through App Store Connect API.")
+    log_step_done(f"Screenshot API upload: {args.locale}", 0)
     return 0
 
 
@@ -714,5 +709,9 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except AppStoreConnectError as error:
-        print(f"ERROR: Screenshot API upload failed: {error}", file=sys.stderr)
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+        from log import log_error, log_step_done
+
+        log_error(f"Screenshot API upload failed: {error}")
+        log_step_done("Screenshot API upload", 1)
         raise SystemExit(1)
