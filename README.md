@@ -105,10 +105,13 @@ env:
 ```bash
 cp config.example.yaml ../automation-config.yaml   # in app repo root
 pip install -r requirements.txt
+bundle install                                     # fastlane via Gemfile
 export AUTOMATION_CONFIG_PATH=/path/to/app-repo/automation-config.yaml
 export AUTOMATION_PREPARED_DIR=/path/to/app-repo/automation-prepared
 bash scripts/run_all.sh
 ```
+
+CI uses `ubuntu-latest` with `bundle install` in this repo root (`Gemfile`).
 
 ## Releases
 
