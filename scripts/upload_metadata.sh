@@ -74,9 +74,9 @@ upload_locale_metadata() {
     run_fastlane ios upload_metadata_for_locale
   status=$?
   set -e
-  unset AUTOMATION_FASTLANE_LOG
 
   local log_file="$AUTOMATION_FASTLANE_LOG"
+  unset AUTOMATION_FASTLANE_LOG
 
   if [[ "$status" -eq 0 ]]; then
     uploaded_locales+=("$locale")

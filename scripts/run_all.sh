@@ -119,8 +119,8 @@ run_step "Validating inputs..."
 report_continue_step "Input validation" bash "$SCRIPT_DIR/validate_metadata.sh"
 
 if [[ "$RUN_METADATA" == "true" || "$RUN_WHATS_NEW" == "true" || "$RUN_SCREENSHOTS" == "true" || "$RUN_APP_INFO" == "true" ]]; then
-  echo "Ensuring editable App Store version exists..."
-  report_continue_step "Editable App Store version" bash "$SCRIPT_DIR/ensure_editable_app_store_version.sh"
+  run_step "Ensuring editable App Store version exists..."
+  bash "$SCRIPT_DIR/ensure_editable_app_store_version.sh"
 fi
 
 if [[ "$RUN_METADATA" == "true" ]]; then

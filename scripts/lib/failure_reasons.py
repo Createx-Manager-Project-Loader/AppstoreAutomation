@@ -26,6 +26,9 @@ NAME_PATTERNS = [
     r"app name.*already",
     r"name.*already (been )?used",
     r"name.*already in use",
+    r"already being used by another app",
+    r"duplicate_name",
+    r"state_error\.duplicate_name",
     r"not available.*app name",
     r"non-unique",
     r"not unique",
@@ -46,12 +49,13 @@ METADATA_PATTERNS = [
 ]
 
 SCREENSHOT_PATTERNS = [
-    r"screenshot",
-    r"appScreenshot",
-    r"screenshotset",
+    r"\bappScreenshot\b",
+    r"\bscreenshotset\b",
     r"assetDeliveryState",
     r"image.*too (large|small)",
     r"invalid image",
+    r"screenshot upload",
+    r"upload.*screenshot",
 ]
 
 VALIDATION_PATTERNS = [
@@ -163,16 +167,27 @@ def classify_failure(
     error_lines = extract_error_lines(text)
     message = summarize_message(error_lines)
 
-    if step == "screenshots" or _matches(COMPILED["screenshot"], lower):
-        return _reason("screenshot_rejected", message, exit_code)
-
     if _matches(COMPILED["name"], lower):
         return _reason("name_rejected", message, exit_code)
+
+    if "non-interactive mode" in lower or "fastlanecrash" in lower:
+        if step == "app_info":
+            if included_name:
+                return _reason("name_rejected", message, exit_code)
+            return _reason("metadata_rejected", message, exit_code)
+        if step == "screenshots":
+            return _reason("screenshot_rejected", message, exit_code)
+        if step in {"metadata", "whats_new"}:
+            return _reason("metadata_rejected", message, exit_code)
+        return _reason("unknown", message, exit_code)
 
     if step == "app_info":
         if included_name:
             return _reason("name_rejected", message, exit_code)
         return _reason("metadata_rejected", message, exit_code)
+
+    if step == "screenshots" or _matches(COMPILED["screenshot"], lower):
+        return _reason("screenshot_rejected", message, exit_code)
 
     if step in {"metadata", "whats_new"} or _matches(COMPILED["metadata"], lower):
         return _reason("metadata_rejected", message, exit_code)

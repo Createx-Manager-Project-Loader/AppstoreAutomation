@@ -24,6 +24,6 @@ echo "Validating What's New inputs..."
 report_continue_step "What's New validation" env WHATS_NEW_VALIDATE_ONLY=true bash "$SCRIPT_DIR/validate_metadata.sh"
 
 echo "Ensuring editable App Store version exists..."
-report_continue_step "Editable App Store version" bash "$SCRIPT_DIR/ensure_editable_app_store_version.sh"
+bash "$SCRIPT_DIR/ensure_editable_app_store_version.sh"
 
 report_continue_step "What's New apply + upload" bash "$SCRIPT_DIR/upload_whats_new.sh"

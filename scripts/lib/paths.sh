@@ -28,7 +28,7 @@ run_fastlane() {
   local log_file="${AUTOMATION_FASTLANE_LOG:-}"
   local -a fastlane_args=()
 
-  if [[ "${GITHUB_ACTIONS:-}" == "true" || "${CI:-}" == "true" ]]; then
+  if [[ "${AUTOMATION_FASTLANE_VERBOSE:-}" == "1" ]]; then
     fastlane_args+=(--verbose)
   fi
 
@@ -41,6 +41,12 @@ run_fastlane() {
     cd "$AUTOMATION_DIR"
     export FASTLANE_DISABLE_COLORS=1
     export DELIVER_FORCE_OVERWRITE=1
+    export FASTLANE_IS_INTERACTIVE=false
+    export FASTLANE_SKIP_UPDATE_CHECK=1
+    export FASTLANE_HIDE_ACTION_SUMMARY=1
+    if [[ "${GITHUB_ACTIONS:-}" == "true" || "${CI:-}" == "true" ]]; then
+      export CI=true
+    fi
 
     run_fastlane_cmd() {
       if [[ -f "Gemfile" ]]; then
@@ -50,25 +56,19 @@ run_fastlane() {
       fi
     }
 
-    if command -v stdbuf >/dev/null 2>&1; then
-      run_fastlane_cmd() {
-        if [[ -f "Gemfile" ]]; then
-          stdbuf -oL -eL bundle exec fastlane "${fastlane_args[@]}" "$@"
-        else
-          stdbuf -oL -eL fastlane "${fastlane_args[@]}" "$@"
-        fi
-      }
-    fi
-
     if [[ -n "$log_file" ]]; then
       mkdir -p "$(dirname "$log_file")"
       : >"$log_file"
-      run_fastlane_cmd 2>&1 | tee -a "$log_file"
-      exit "${PIPESTATUS[0]}"
+      # Redirect to file (not a pipe) so deliver does not hit non-interactive prompts via tee.
+      run_fastlane_cmd "$@" >>"$log_file" 2>&1
+    else
+      run_fastlane_cmd "$@"
     fi
-
-    run_fastlane_cmd
   ) || status=$?
+
+  if [[ -n "$log_file" && -f "$log_file" ]]; then
+    cat "$log_file"
+  fi
 
   if [[ "$status" -eq 0 ]]; then
     log_info "Fastlane exit 0: $*"
