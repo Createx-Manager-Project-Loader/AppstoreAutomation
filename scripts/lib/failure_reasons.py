@@ -167,6 +167,9 @@ def classify_failure(
     error_lines = extract_error_lines(text)
     message = summarize_message(error_lines)
 
+    if "unbound variable" in lower or "paths.sh:" in lower:
+        return _reason("unknown", message, exit_code)
+
     if _matches(COMPILED["name"], lower):
         return _reason("name_rejected", message, exit_code)
 

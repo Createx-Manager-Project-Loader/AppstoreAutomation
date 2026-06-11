@@ -26,10 +26,12 @@ source "$LIB_DIR/log.sh"
 run_fastlane() {
   local status=0
   local log_file="${AUTOMATION_FASTLANE_LOG:-}"
-  local -a fastlane_args=()
+  local use_verbose=false
+  local pwd_before="$PWD"
+  local -a cmd=()
 
   if [[ "${AUTOMATION_FASTLANE_VERBOSE:-}" == "1" ]]; then
-    fastlane_args+=(--verbose)
+    use_verbose=true
   fi
 
   log_info "Fastlane start: $*"
@@ -37,34 +39,37 @@ run_fastlane() {
   log_info "ASC_METADATA_ITEMS=${ASC_METADATA_ITEMS:-}"
   log_info "METADATA_PATH=${METADATA_PATH:-}"
 
-  (
-    cd "$AUTOMATION_DIR"
-    export FASTLANE_DISABLE_COLORS=1
-    export DELIVER_FORCE_OVERWRITE=1
-    export FASTLANE_IS_INTERACTIVE=false
-    export FASTLANE_SKIP_UPDATE_CHECK=1
-    export FASTLANE_HIDE_ACTION_SUMMARY=1
-    if [[ "${GITHUB_ACTIONS:-}" == "true" || "${CI:-}" == "true" ]]; then
-      export CI=true
-    fi
+  export FASTLANE_DISABLE_COLORS=1
+  export DELIVER_FORCE_OVERWRITE=1
+  export FASTLANE_IS_INTERACTIVE=false
+  export FASTLANE_SKIP_UPDATE_CHECK=1
+  export FASTLANE_HIDE_ACTION_SUMMARY=1
+  if [[ "${GITHUB_ACTIONS:-}" == "true" || "${CI:-}" == "true" ]]; then
+    export CI=true
+  fi
 
-    run_fastlane_cmd() {
-      if [[ -f "Gemfile" ]]; then
-        bundle exec fastlane "${fastlane_args[@]}" "$@"
-      else
-        fastlane "${fastlane_args[@]}" "$@"
-      fi
-    }
+  if [[ -f "$AUTOMATION_DIR/Gemfile" ]]; then
+    cmd=(bundle exec fastlane)
+  else
+    cmd=(fastlane)
+  fi
+  if [[ "$use_verbose" == "true" ]]; then
+    cmd+=(--verbose)
+  fi
+  cmd+=("$@")
 
-    if [[ -n "$log_file" ]]; then
-      mkdir -p "$(dirname "$log_file")"
-      : >"$log_file"
-      # Redirect to file (not a pipe) so deliver does not hit non-interactive prompts via tee.
-      run_fastlane_cmd "$@" >>"$log_file" 2>&1
-    else
-      run_fastlane_cmd "$@"
-    fi
-  ) || status=$?
+  cd "$AUTOMATION_DIR" || return 1
+
+  if [[ -n "$log_file" ]]; then
+    mkdir -p "$(dirname "$log_file")"
+    : >"$log_file"
+    # Redirect to file (not a pipe) so deliver does not hit non-interactive prompts via tee.
+    "${cmd[@]}" >>"$log_file" 2>&1 || status=$?
+  else
+    "${cmd[@]}" || status=$?
+  fi
+
+  cd "$pwd_before" || true
 
   if [[ -n "$log_file" && -f "$log_file" ]]; then
     cat "$log_file"
