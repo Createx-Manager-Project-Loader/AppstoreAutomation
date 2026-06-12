@@ -7,6 +7,8 @@ source "$LIB_DIR/report.sh"
 PREPARED_SCREENSHOTS_DIR="$PREPARED_DIR/screenshots"
 ONE_LOCALE_DIR="$PREPARED_DIR/one_locale_screenshots"
 DELAY_SECONDS="${SCREENSHOT_UPLOAD_DELAY_SECONDS:-0}"
+RETRY_DELAY_SECONDS="${SCREENSHOT_UPLOAD_RETRY_DELAY_SECONDS:-5}"
+MAX_ATTEMPTS="${SCREENSHOT_UPLOAD_MAX_ATTEMPTS:-5}"
 
 cd "$REPO_ROOT"
 source "$SCRIPT_DIR/load_account_config.sh"
@@ -39,7 +41,9 @@ failed_locales=()
 
 run_api_upload() {
   local locale="$1"
-  local log_file="$2"
+  local attempt="$2"
+  local safe_locale="${locale//[^A-Za-z0-9_.-]/_}"
+  local log_file="$PREPARED_DIR/api_screenshots_${safe_locale}_attempt_${attempt}.log"
 
   rm -f "$log_file"
   python3 "$SCRIPT_DIR/upload_screenshots_api.py" \
@@ -51,8 +55,9 @@ run_api_upload() {
 
 upload_locale() {
   local locale="$1"
+  local attempt=1
   local safe_locale="${locale//[^A-Za-z0-9_.-]/_}"
-  local log_file="$PREPARED_DIR/api_screenshots_${safe_locale}.log"
+  local last_log_file=""
 
   rm -rf "$ONE_LOCALE_DIR"
   mkdir -p "$ONE_LOCALE_DIR"
@@ -60,17 +65,29 @@ upload_locale() {
 
   log_step "Screenshot upload: $locale"
   log_debug "Screenshot source: $PREPARED_SCREENSHOTS_DIR/$locale"
-  log_info "Uploading screenshots for $locale..."
-  if run_api_upload "$locale" "$log_file"; then
-    log_info "Uploaded screenshots for $locale."
-    uploaded_locales+=("$locale")
-    log_step_done "Screenshot upload: $locale" 0
-  else
-    failed_locales+=("$locale")
-    report_locale_failure screenshots "$locale" screenshots 1 "$log_file" >/dev/null
-    log_warn "Failed to upload screenshots for $locale. Continuing with next locale."
-    log_step_done "Screenshot upload: $locale" 1
-  fi
+
+  while true; do
+    last_log_file="$PREPARED_DIR/api_screenshots_${safe_locale}_attempt_${attempt}.log"
+    log_info "Uploading screenshots for $locale (attempt $attempt/$MAX_ATTEMPTS)..."
+    if run_api_upload "$locale" "$attempt"; then
+      log_info "Uploaded screenshots for $locale."
+      uploaded_locales+=("$locale")
+      log_step_done "Screenshot upload: $locale" 0
+      break
+    fi
+
+    if [[ "$attempt" -ge "$MAX_ATTEMPTS" ]]; then
+      failed_locales+=("$locale")
+      report_locale_failure screenshots "$locale" screenshots 1 "$last_log_file" >/dev/null
+      log_warn "Failed to upload screenshots for $locale after $MAX_ATTEMPTS attempt(s). Continuing with next locale."
+      log_step_done "Screenshot upload: $locale" 1
+      break
+    fi
+
+    attempt=$((attempt + 1))
+    log_warn "Retrying $locale after $RETRY_DELAY_SECONDS second(s)..."
+    sleep "$RETRY_DELAY_SECONDS"
+  done
 }
 
 for locale in "${screenshot_locales[@]}"; do

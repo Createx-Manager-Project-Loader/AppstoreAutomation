@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import struct
 import sys
 import time
@@ -159,8 +160,16 @@ def md5_hex(path: Path) -> str:
 
 
 class AppStoreConnectClient:
-    def __init__(self, key_id: str, issuer_id: str, key_path: Path, timeout: int = 60) -> None:
+    def __init__(
+        self,
+        key_id: str,
+        issuer_id: str,
+        key_path: Path,
+        timeout: int = 60,
+        max_retries: int = 5,
+    ) -> None:
         self.timeout = timeout
+        self.max_retries = max_retries
         self.session = requests.Session()
         self.token = self.create_token(key_id, issuer_id, key_path)
 
@@ -192,30 +201,53 @@ class AppStoreConnectClient:
         kwargs["headers"] = headers
         kwargs.setdefault("timeout", self.timeout)
 
-        log_api_request(method, url)
-        try:
-            response = self.session.request(method, url, **kwargs)
-        except requests.RequestException as error:
-            log_api_response(method, url, 0, str(error))
-            raise AppStoreConnectError(f"{method} {url} failed: {error}") from error
+        for attempt in range(1, self.max_retries + 1):
+            log_api_request(method, url)
+            try:
+                response = self.session.request(method, url, **kwargs)
+            except requests.RequestException as error:
+                log_api_response(method, url, 0, str(error))
+                if attempt == self.max_retries:
+                    raise AppStoreConnectError(f"{method} {url} failed: {error}") from error
+                self.sleep_before_retry(attempt, None)
+                continue
 
-        if response.status_code == 204:
+            if response.status_code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
+                log_api_response(method, url, response.status_code, response.text)
+                self.sleep_before_retry(attempt, response)
+                continue
+
+            if response.status_code == 204:
+                log_api_response(method, url, response.status_code)
+                return {}
+
+            if not response.ok:
+                log_api_response(method, url, response.status_code, response.text)
+                raise AppStoreConnectError(f"{method} {url} failed with {response.status_code}: {response.text}")
+
             log_api_response(method, url, response.status_code)
-            return {}
+            if method == "GET":
+                payload = response.json() if response.content else {}
+                data = payload.get("data", [])
+                if isinstance(data, list):
+                    log_info(f"ASC API {method} {url} returned {len(data)} item(s)")
+                return payload
 
-        if not response.ok:
-            log_api_response(method, url, response.status_code, response.text)
-            raise AppStoreConnectError(f"{method} {url} failed with {response.status_code}: {response.text}")
+            return response.json() if response.content else {}
 
-        log_api_response(method, url, response.status_code)
-        if method == "GET":
-            payload = response.json() if response.content else {}
-            data = payload.get("data", [])
-            if isinstance(data, list):
-                log_info(f"ASC API {method} {url} returned {len(data)} item(s)")
-            return payload
+        raise AppStoreConnectError(f"{method} {url} failed after {self.max_retries} attempts")
 
-        return response.json() if response.content else {}
+    def sleep_before_retry(self, attempt: int, response: Optional[requests.Response]) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+        from log import log_warn
+
+        retry_after = response.headers.get("Retry-After") if response is not None else None
+        if retry_after and retry_after.isdigit():
+            delay = int(retry_after)
+        else:
+            delay = min(30, (2 ** (attempt - 1)) + random.random())
+        log_warn(f"Retrying App Store Connect request after {delay:.1f} second(s)...")
+        time.sleep(delay)
 
     def get_all(self, path: str) -> list[dict[str, Any]]:
         results = []
@@ -237,15 +269,26 @@ class AppStoreConnectClient:
             file.seek(offset)
             data = file.read(length)
 
-        try:
-            response = self.session.request(method, url, headers=headers, data=data, timeout=self.timeout)
-        except requests.RequestException as error:
-            raise AppStoreConnectError(f"Upload failed for {image_path}: {error}") from error
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = self.session.request(method, url, headers=headers, data=data, timeout=self.timeout)
+            except requests.RequestException as error:
+                if attempt == self.max_retries:
+                    raise AppStoreConnectError(f"Upload failed for {image_path}: {error}") from error
+                self.sleep_before_retry(attempt, None)
+                continue
 
-        if not response.ok:
-            raise AppStoreConnectError(
-                f"Upload failed for {image_path} with {response.status_code}: {response.text}"
-            )
+            if response.status_code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
+                self.sleep_before_retry(attempt, response)
+                continue
+
+            if not response.ok:
+                raise AppStoreConnectError(
+                    f"Upload failed for {image_path} with {response.status_code}: {response.text}"
+                )
+            return
+
+        raise AppStoreConnectError(f"Upload failed for {image_path} after {self.max_retries} attempts")
 
 
 def require_env(name: str) -> str:
@@ -674,6 +717,7 @@ def main() -> int:
         issuer_id=require_env("ASC_ISSUER_ID"),
         key_path=key_path,
         timeout=env_int("SCREENSHOT_API_REQUEST_TIMEOUT", 60),
+        max_retries=env_int("SCREENSHOT_API_MAX_RETRIES", 5),
     )
 
     app = find_app(client, require_env("APP_IDENTIFIER"))
