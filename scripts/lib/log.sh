@@ -65,7 +65,7 @@ log_file_summary() {
   local size
   size="$(wc -c < "$file_path" | tr -d ' ')"
   local preview
-  preview="$(LC_ALL=C head -c 200 "$file_path" | tr '\n' ' ')"
+  preview="$(LC_ALL=C head -c 200 "$file_path" | LC_ALL=C tr '\n' ' ')"
   log_info "$label $file_path (${size} bytes): ${preview}"
 }
 
