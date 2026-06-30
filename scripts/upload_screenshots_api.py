@@ -674,6 +674,36 @@ def wait_for_processing(client: AppStoreConnectClient, screenshot_ids: list[str]
         raise AppStoreConnectError(f"Timed out waiting for {len(remaining)} screenshot(s) to finish processing")
 
 
+def list_set_screenshot_ids(client: AppStoreConnectClient, set_id: str) -> list[str]:
+    screenshots = client.get_all(
+        f"/appScreenshotSets/{set_id}/appScreenshots?fields[appScreenshots]=fileName"
+    )
+    return [screenshot["id"] for screenshot in screenshots]
+
+
+def verify_screenshot_order(
+    client: AppStoreConnectClient,
+    set_id: str,
+    expected_ids: list[str],
+    dry_run: bool,
+) -> None:
+    if dry_run or not expected_ids:
+        return
+
+    if list_set_screenshot_ids(client, set_id) == expected_ids:
+        return
+
+    print(f"Screenshot order mismatch in set {set_id}; re-applying intended order...")
+    order_screenshots(client, set_id, expected_ids, dry_run)
+
+    if list_set_screenshot_ids(client, set_id) != expected_ids:
+        print(
+            f"WARNING: App Store Connect still reports a different screenshot order for set {set_id} "
+            "after re-applying. Check the order manually.",
+            file=sys.stderr,
+        )
+
+
 def grouped_images(locale_dir: Path) -> dict[str, list[Path]]:
     images = sorted(
         [path for path in locale_dir.iterdir() if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS],
@@ -737,12 +767,22 @@ def main() -> int:
 
     for display_type, images in sorted(groups.items()):
         log_info(f"Uploading {len(images)} screenshot(s) for {args.locale} / {display_type}...")
-        for image in images:
-            log_info(f"Screenshot file: {image.name} ({image.stat().st_size} bytes)")
         set_id = replace_screenshot_set(client, localization["id"], display_type, dry_run)
-        screenshot_ids = [upload_screenshot(client, set_id, image, dry_run) for image in images]
+        # Upload one screenshot at a time and wait for each to finish processing before
+        # sending the next. App Store Connect orders a batch by processing-completion time,
+        # so a parallel upload comes out shuffled; sequential upload keeps the intended order.
+        screenshot_ids: list[str] = []
+        for position, image in enumerate(images, start=1):
+            log_info(
+                f"Screenshot {position}/{len(images)} for {args.locale} / {display_type}: "
+                f"{image.name} ({image.stat().st_size} bytes)"
+            )
+            screenshot_id = upload_screenshot(client, set_id, image, dry_run)
+            wait_for_processing(client, [screenshot_id], processing_timeout, dry_run)
+            screenshot_ids.append(screenshot_id)
+        # Pin the final display order once every screenshot is processed, then confirm it stuck.
         order_screenshots(client, set_id, screenshot_ids, dry_run)
-        wait_for_processing(client, screenshot_ids, processing_timeout, dry_run)
+        verify_screenshot_order(client, set_id, screenshot_ids, dry_run)
 
     log_info(f"Uploaded screenshots for {args.locale} through App Store Connect API.")
     log_step_done(f"Screenshot API upload: {args.locale}", 0)
