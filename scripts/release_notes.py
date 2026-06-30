@@ -405,6 +405,24 @@ def resolve_release_notes_for_locales(
     else:
         fallback_text = (fallback or "").strip()
 
+    # Explicit release_notes (workflow input / config) wins for every locale.
+    # Only when it is empty do we carry text over from the released version
+    # (per-locale text first, then the primary locale) as before.
+    if fallback_text:
+        resolved = {locale: fallback_text for locale in locales}
+        stats = {"source_live": 0, "source_primary": 0, "source_base": 0, "source_config": len(resolved)}
+        if resolved:
+            fallback_label = (
+                "workflow release_notes"
+                if release_notes_fallback_source() == "workflow_or_env"
+                else "config release_notes"
+            )
+            print(
+                f"Prepared What's New from {fallback_label} for all locale(s) "
+                "(explicit release_notes takes priority)."
+            )
+        return resolved, stats
+
     live_notes: dict[str, str] = {}
     base = base_locale()
 
