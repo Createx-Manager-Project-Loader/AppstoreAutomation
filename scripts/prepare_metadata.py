@@ -166,13 +166,25 @@ def read_user_config():
     raise SystemExit(f"Missing config file: {CONFIG_YAML} (recommended) or {CONFIG_ENV}")
 
 
+def expand_release_notes_escapes(text: str) -> str:
+    """Turn literal \\n typed in the single-line workflow form into real newlines.
+
+    GitHub workflow_dispatch string inputs are single-line, so a paragraph break has to
+    be written as a backslash-n. A real multi-line value from automation-config.yaml
+    (YAML block scalar) already has newlines and passes through unchanged.
+    """
+    if not text:
+        return text
+    return text.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
+
+
 def get_release_notes_fallback() -> str:
     import os
 
     env_value = os.environ.get("RELEASE_NOTES", "").strip()
     if env_value:
-        return env_value
-    return USER_CONFIG.get("RELEASE_NOTES", "").strip()
+        return expand_release_notes_escapes(env_value)
+    return expand_release_notes_escapes(USER_CONFIG.get("RELEASE_NOTES", "").strip())
 
 
 def release_notes_fallback_source() -> str:
