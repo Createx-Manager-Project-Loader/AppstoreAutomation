@@ -74,6 +74,7 @@ source_mode_label() {
     aso) echo "ASO and What's New" ;;
     whats_new) echo "What's New only" ;;
     all) echo "all enabled steps (ASO and/or screenshots and What's New)" ;;
+    selection) echo "exactly the selected items" ;;
     *) echo "$MODE" ;;
   esac
 }

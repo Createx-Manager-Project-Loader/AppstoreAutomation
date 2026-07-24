@@ -257,7 +257,75 @@ def has_screenshots_source():
 
 
 def is_whats_new_only_mode():
+    selection = read_selection()
+    if selection is not None:
+        return selection == {"whats_new"}
     return read_run_mode() == "whats_new"
+
+
+# --- Гибкий выбор: дашборд шлёт ровно отмеченные галочки (ASC_SELECTION) ---
+# Каждый ключ в списке — это то, что нужно залить. Automation сам решает, какие
+# скрипты запускать. Отдельного «выбора шагов» нет: галочки и есть план.
+# Пусто/не задано → работаем по старому RUN_MODE (полная обратная совместимость).
+SELECTION_METADATA_FIELDS = {"subtitle", "keywords", "description", "promotional_text"}
+SELECTION_APP_INFO_FIELDS = {"name", "subtitle"}
+
+
+def read_selection():
+    import os
+
+    raw = os.environ.get("ASC_SELECTION", "").strip()
+    if not raw:
+        raw = (SOURCE_LINKS.get("ASC_SELECTION") or "").strip()
+    if not raw:
+        return None
+    items = {part.strip().lower() for part in raw.split(",") if part.strip()}
+    return items or None
+
+
+def resolve_plan_from_selection(selection):
+    # Только «Что нового» — используем проверенный быстрый путь (mode=whats_new).
+    if selection == {"whats_new"}:
+        return {
+            "mode": "whats_new",
+            "prepare_aso": False,
+            "prepare_screenshots": False,
+            "run_metadata": False,
+            "run_app_info": False,
+            "run_subscriptions": False,
+            "run_screenshots": False,
+            "run_whats_new": True,
+        }
+
+    has_aso = has_aso_source()
+    has_shots = has_screenshots_source()
+
+    want_metadata = bool(selection & SELECTION_METADATA_FIELDS)
+    want_app_info = bool(selection & SELECTION_APP_INFO_FIELDS)
+    want_subscriptions = "subscriptions" in selection
+    want_screenshots = "screenshots" in selection
+    want_whats_new = "whats_new" in selection
+
+    needs_sheet = want_metadata or want_app_info or want_subscriptions
+    if needs_sheet and not has_aso:
+        raise SystemExit(
+            "Выбраны тексты или подписки, но не задан google_sheet_url в config.yaml"
+        )
+    if want_screenshots and not has_shots:
+        raise SystemExit(
+            "Выбраны скриншоты, но не задан screenshots_zip_url в config.yaml"
+        )
+
+    return {
+        "mode": "selection",
+        "prepare_aso": needs_sheet,
+        "prepare_screenshots": want_screenshots,
+        "run_metadata": want_metadata,
+        "run_app_info": want_app_info,
+        "run_subscriptions": want_subscriptions,
+        "run_screenshots": want_screenshots,
+        "run_whats_new": want_whats_new,
+    }
 
 
 def read_run_mode():
@@ -276,6 +344,12 @@ def read_run_mode():
 
 
 def resolve_run_plan():
+    # Гибкий путь: если дашборд прислал точный список галочек — план строим из
+    # него, а не из грубого RUN_MODE. Заливается ровно отмеченное.
+    selection = read_selection()
+    if selection is not None:
+        return resolve_plan_from_selection(selection)
+
     mode = read_run_mode()
     has_aso = has_aso_source()
     has_shots = has_screenshots_source()

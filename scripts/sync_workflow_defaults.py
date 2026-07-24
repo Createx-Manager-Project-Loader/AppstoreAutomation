@@ -48,6 +48,7 @@ def read_config() -> dict[str, str]:
         "screenshots_zip_url": pick("screenshots_zip_url"),
         "asc_metadata_items": pick("asc_metadata_items"),
         "asc_only_locales": pick("asc_only_locales"),
+        "asc_selection": pick("asc_selection"),
     }
 
 
@@ -90,6 +91,10 @@ def render_inputs(config: dict[str, str]) -> str:
             "      asc_only_locales:",
             "        required: false",
             f"        default: {yaml_scalar(config['asc_only_locales'])}",
+            "        type: string",
+            "      asc_selection:",
+            "        required: false",
+            f"        default: {yaml_scalar(config['asc_selection'])}",
             "        type: string",
             MARKER_END,
         ]

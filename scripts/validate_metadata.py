@@ -352,7 +352,7 @@ def main():
 
     if run_whats_new and not errors:
         locales = sorted(screenshot_locales) if screenshot_locales else metadata_locales()
-        if not locales and mode == "all" and not prepare_screenshots:
+        if not locales and mode in ("all", "selection") and not prepare_screenshots:
             locales = metadata_locales()
         if not locales:
             errors.append("No locales found for What's New validation.")
