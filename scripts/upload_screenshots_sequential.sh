@@ -26,6 +26,7 @@ fi
 screenshot_locales=()
 for locale_dir in "$PREPARED_SCREENSHOTS_DIR"/*; do
   [[ -d "$locale_dir" ]] || continue
+  locale_selected "$(basename "$locale_dir")" || continue
   screenshot_locales+=("$(basename "$locale_dir")")
 done
 

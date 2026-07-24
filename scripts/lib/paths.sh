@@ -86,3 +86,25 @@ run_fastlane() {
   fi
   return "$status"
 }
+
+# Фильтр локалей для повтора. Возвращает 0, если локаль входит в
+# ASC_ONLY_LOCALES (список через запятую) либо если фильтр пуст (= все локали).
+# Сравнение регистронезависимое, пробелы игнорируются — устойчиво к
+# «de-DE», «de-de», « fr-FR ».
+locale_selected() {
+  local candidate="$1"
+  local filter="${ASC_ONLY_LOCALES:-}"
+  [[ -z "${filter//[[:space:]]/}" ]] && return 0
+
+  local cand_lc
+  cand_lc="$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]')"
+
+  local item item_lc
+  IFS=',' read -ra _only <<<"$filter"
+  for item in "${_only[@]}"; do
+    item_lc="$(printf '%s' "${item//[[:space:]]/}" | tr '[:upper:]' '[:lower:]')"
+    [[ -z "$item_lc" ]] && continue
+    [[ "$cand_lc" == "$item_lc" ]] && return 0
+  done
+  return 1
+}

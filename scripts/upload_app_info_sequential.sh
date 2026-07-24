@@ -47,8 +47,8 @@ upload_locale() {
   local has_subtitle=false
   local lane="upload_app_info_for_locale"
 
-  [[ -s "$source_locale_dir/name.txt" ]] && has_name=true
-  [[ -s "$source_locale_dir/subtitle.txt" ]] && has_subtitle=true
+  [[ "$APP_INFO_WANT_NAME" == "true" && -s "$source_locale_dir/name.txt" ]] && has_name=true
+  [[ "$APP_INFO_WANT_SUBTITLE" == "true" && -s "$source_locale_dir/subtitle.txt" ]] && has_subtitle=true
 
   if [[ "$has_name" == "false" && "$has_subtitle" == "false" ]]; then
     echo "Skipping $locale: missing name.txt and subtitle.txt"
@@ -91,9 +91,30 @@ upload_locale() {
   unset AUTOMATION_FASTLANE_LOG
 }
 
+# Точный выбор полей: app_info владеет name и subtitle. Пусто = оба, как раньше.
+APP_INFO_WANT_NAME=true
+APP_INFO_WANT_SUBTITLE=true
+if [[ -n "${ASC_METADATA_ITEMS:-}" ]]; then
+  APP_INFO_WANT_NAME=false
+  APP_INFO_WANT_SUBTITLE=false
+  IFS=',' read -ra _items <<<"${ASC_METADATA_ITEMS}"
+  for _it in "${_items[@]}"; do
+    _it="${_it//[[:space:]]/}"
+    [[ "$_it" == "name" ]] && APP_INFO_WANT_NAME=true
+    [[ "$_it" == "subtitle" ]] && APP_INFO_WANT_SUBTITLE=true
+  done
+fi
+
+if [[ "$APP_INFO_WANT_NAME" == "false" && "$APP_INFO_WANT_SUBTITLE" == "false" ]]; then
+  echo "Neither name nor subtitle selected in ASC_METADATA_ITEMS; skipping app info upload."
+  report_merge app_info skipped=true status=skipped reason=no_requested_items
+  exit 0
+fi
+
 for locale_dir in "$SOURCE_METADATA_DIR"/*; do
   [[ -d "$locale_dir" ]] || continue
   locale="$(basename "$locale_dir")"
+  locale_selected "$locale" || continue
   [[ -f "$locale_dir/name.txt" || -f "$locale_dir/subtitle.txt" ]] || continue
   candidate_locales+=("$locale")
   upload_locale "$locale"

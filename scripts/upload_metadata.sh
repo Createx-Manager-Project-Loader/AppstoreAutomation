@@ -94,24 +94,54 @@ has_description_metadata() {
   compgen -G "$REPO_ROOT/metadata/*/description.txt" >/dev/null
 }
 
-METADATA_ITEMS="subtitle,keywords"
+# Автоматически определяем, какие поля вообще доступны (есть файлы + гейт whats_new).
+AUTO_ITEMS="subtitle,keywords"
 if has_description_metadata; then
-  METADATA_ITEMS="subtitle,keywords,description"
+  AUTO_ITEMS="subtitle,keywords,description"
+fi
+
+if compgen -G "$REPO_ROOT/metadata/*/promotional_text.txt" >/dev/null; then
+  AUTO_ITEMS="$AUTO_ITEMS,promotional_text"
 fi
 
 if [[ "${RUN_WHATS_NEW:-false}" != "true" ]]; then
-  METADATA_ITEMS="$METADATA_ITEMS,release_notes"
+  AUTO_ITEMS="$AUTO_ITEMS,release_notes"
   if compgen -G "$REPO_ROOT/metadata/*/support_url.txt" >/dev/null; then
-    METADATA_ITEMS="$METADATA_ITEMS,support_url"
+    AUTO_ITEMS="$AUTO_ITEMS,support_url"
   fi
 
   if compgen -G "$REPO_ROOT/metadata/*/marketing_url.txt" >/dev/null; then
-    METADATA_ITEMS="$METADATA_ITEMS,marketing_url"
+    AUTO_ITEMS="$AUTO_ITEMS,marketing_url"
   fi
 fi
 
 if [[ "${INCLUDE_APP_NAME:-false}" == "true" ]]; then
-  METADATA_ITEMS="name,$METADATA_ITEMS"
+  AUTO_ITEMS="name,$AUTO_ITEMS"
+fi
+
+# Если задан точный список полей (ASC_METADATA_ITEMS) — заливаем только выбранное
+# И доступное (пересечение). Пусто → всё доступное, как раньше.
+REQUESTED_ITEMS="${ASC_METADATA_ITEMS:-}"
+if [[ -n "$REQUESTED_ITEMS" ]]; then
+  METADATA_ITEMS=""
+  IFS=',' read -ra _requested <<<"$REQUESTED_ITEMS"
+  for _item in "${_requested[@]}"; do
+    _item="${_item//[[:space:]]/}"
+    [[ -z "$_item" ]] && continue
+    if [[ ",$AUTO_ITEMS," == *",$_item,"* ]]; then
+      METADATA_ITEMS="${METADATA_ITEMS:+$METADATA_ITEMS,}$_item"
+    fi
+  done
+  log_info "Requested metadata items: $REQUESTED_ITEMS; available: $AUTO_ITEMS"
+else
+  METADATA_ITEMS="$AUTO_ITEMS"
+fi
+
+# Ничего из выбранного не доступно — пропускаем шаг, а не заливаем всё подряд.
+if [[ -z "$METADATA_ITEMS" ]]; then
+  echo "No requested metadata items available (requested: $REQUESTED_ITEMS). Skipping metadata upload."
+  report_merge metadata_upload skipped=true status=skipped reason=no_requested_items
+  exit 0
 fi
 
 log_step "Metadata upload"
@@ -125,6 +155,7 @@ failed_locales=()
 if [[ -d "$PREPARED_METADATA_DIR" ]]; then
   for locale_dir in "$PREPARED_METADATA_DIR"/*; do
     [[ -d "$locale_dir" ]] || continue
+    locale_selected "$(basename "$locale_dir")" || continue
     candidate_locales+=("$(basename "$locale_dir")")
   done
 fi

@@ -22,6 +22,7 @@ failed_locales=()
 for locale_dir in "$METADATA_DIR"/*; do
   [[ -d "$locale_dir" ]] || continue
   [[ -s "$locale_dir/release_notes.txt" ]] || continue
+  locale_selected "$(basename "$locale_dir")" || continue
   candidate_locales+=("$(basename "$locale_dir")")
 done
 

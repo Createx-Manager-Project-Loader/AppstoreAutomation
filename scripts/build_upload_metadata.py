@@ -26,6 +26,8 @@ def requested_items():
     items = list(DEFAULT_ITEMS)
     if has_description_metadata():
         items.append("description")
+    if any(SOURCE_METADATA_DIR.glob("*/promotional_text.txt")):
+        items.append("promotional_text")
     if os.environ.get("INCLUDE_APP_NAME", "false") == "true":
         items.insert(0, "name")
     return items

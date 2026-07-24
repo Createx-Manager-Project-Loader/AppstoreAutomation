@@ -46,6 +46,8 @@ def read_config() -> dict[str, str]:
         "release_notes": pick("release_notes"),
         "google_sheet_url": pick("google_sheet_url"),
         "screenshots_zip_url": pick("screenshots_zip_url"),
+        "asc_metadata_items": pick("asc_metadata_items"),
+        "asc_only_locales": pick("asc_only_locales"),
     }
 
 
@@ -80,6 +82,14 @@ def render_inputs(config: dict[str, str]) -> str:
             "      screenshots_zip_url:",
             "        required: false",
             f"        default: {yaml_scalar(config['screenshots_zip_url'])}",
+            "        type: string",
+            "      asc_metadata_items:",
+            "        required: false",
+            f"        default: {yaml_scalar(config['asc_metadata_items'])}",
+            "        type: string",
+            "      asc_only_locales:",
+            "        required: false",
+            f"        default: {yaml_scalar(config['asc_only_locales'])}",
             "        type: string",
             MARKER_END,
         ]

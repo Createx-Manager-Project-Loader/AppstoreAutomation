@@ -32,6 +32,13 @@ ASO_LABELS = {
     "subtitle": "subtitle",
     "ключи": "keywords",
     "keywords": "keywords",
+    # Промо-текст. Подписи нормализуются (lower + trim) — регистр/пробелы не важны.
+    "promo": "promo",
+    "промо": "promo",
+    "промо-текст": "promo",
+    "промо текст": "promo",
+    "promotional text": "promo",
+    "promo text": "promo",
 }
 DESCRIPTION_LABELS = {
     "описание",
@@ -566,6 +573,7 @@ def read_manager_aso_rows(rows, source_name):
                 "title": (current_values.get("title") or "").strip(),
                 "subtitle": (current_values.get("subtitle") or "").strip(),
                 "keywords": (current_values.get("keywords") or "").strip(),
+                "promo": (current_values.get("promo") or "").strip(),
             }
         current_language = None
         current_values = {}
@@ -1008,6 +1016,8 @@ def prepare_metadata_files(aso_rows, description_rows, extra_locales=None):
             write_text(locale_dir / "description.txt", descriptions_by_locale[locale])
         if locale in release_notes_by_locale:
             write_text(locale_dir / "release_notes.txt", release_notes_by_locale[locale])
+        if locale in aso_rows and aso_rows[locale].get("promo"):
+            write_text(locale_dir / "promotional_text.txt", aso_rows[locale]["promo"])
 
     url_files, _url_stats = apply_version_urls_to_metadata_dir(
         METADATA_DIR,
