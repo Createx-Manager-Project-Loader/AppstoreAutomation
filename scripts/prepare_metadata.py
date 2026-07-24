@@ -55,7 +55,9 @@ SUBSCRIPTION_LABELS = {
     "подзаголовок": "description",
     "subtitle": "description",
 }
-SUBSCRIPTION_SHEET_NAMES = ("Subs", "Subscription")
+# Имена листа подписок. Поиск регистронезависимый; принимаем множественное
+# число и русский вариант — таблицы команды называют лист «subscriptions».
+SUBSCRIPTION_SHEET_NAMES = ("Subs", "Subscription", "Subscriptions", "Подписки")
 SUBSCRIPTION_ROW_LABELS = {"подписка", "subscription", "product", "productid", "product_id"}
 SUBSCRIPTION_BLOCK_WIDTH = 3
 LANGUAGE_TO_LOCALES = {
@@ -654,7 +656,12 @@ def read_description_rows():
         return {}
 
     xlsx_path = aso_xlsx_path()
-    rows = read_xlsx_sheet(xlsx_path, ["Description", "Descriptions"])
+    # Принимаем частую опечатку «Descriprion» и русские варианты — поиск
+    # регистронезависимый, лишь бы лист с описаниями нашёлся.
+    rows = read_xlsx_sheet(
+        xlsx_path,
+        ["Description", "Descriptions", "Descriprion", "Описание", "Описания"],
+    )
     if not rows:
         return {}
     return read_manager_description_rows(rows, str(xlsx_path))
