@@ -48,10 +48,20 @@ def build_drive_service():
     except json.JSONDecodeError as error:
         raise SystemExit("GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON") from error
 
-    credentials = service_account.Credentials.from_service_account_info(
-        credentials_info,
-        scopes=[DRIVE_READONLY_SCOPE],
-    )
+    account_type = str(credentials_info.get("type", "")).strip()
+    if account_type == "service_account":
+        # Обычный ключ .json — как было раньше.
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info,
+            scopes=[DRIVE_READONLY_SCOPE],
+        )
+    else:
+        # Workload Identity Federation (type=external_account): ключа-файла нет,
+        # доступ выдаёт google-github-actions/auth через ADC, а
+        # GOOGLE_APPLICATION_CREDENTIALS указывает на короткоживущие креды.
+        import google.auth
+
+        credentials, _ = google.auth.default(scopes=[DRIVE_READONLY_SCOPE])
     return build("drive", "v3", credentials=credentials, cache_discovery=False), credentials_info
 
 
