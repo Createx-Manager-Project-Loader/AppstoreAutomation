@@ -97,6 +97,7 @@ if [[ "$MODE" == "whats_new" ]]; then
 fi
 
 TOTAL_STEPS=1
+[[ "$PREPARE_ASO" == "true" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [[ "$PREPARE_ASO" == "true" || "$PREPARE_SCREENSHOTS" == "true" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [[ "$RUN_METADATA" == "true" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [[ "$RUN_APP_INFO" == "true" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
@@ -110,6 +111,13 @@ run_step() {
   STEP=$((STEP + 1))
   echo "Step $STEP/$TOTAL_STEPS: $*"
 }
+
+# Перевод идёт ДО подготовки: он дописывает недостающие описания прямо в
+# таблицу, а подготовка следом скачивает её заново и видит уже полный набор.
+if [[ "$PREPARE_ASO" == "true" ]]; then
+  run_step "Translating missing descriptions..."
+  report_continue_step "Description translation" python3 "$SCRIPT_DIR/translate_descriptions.py"
+fi
 
 if [[ "$PREPARE_ASO" == "true" || "$PREPARE_SCREENSHOTS" == "true" ]]; then
   run_step "Preparing metadata and screenshots..."

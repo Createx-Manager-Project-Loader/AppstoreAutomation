@@ -5,6 +5,9 @@ import re
 from pathlib import Path
 
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+# Запись переводов обратно в ASO-таблицу. Документ должен быть расшарен
+# сервисному аккаунту с правом редактирования.
+SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 SPREADSHEET_MIME = "application/vnd.google-apps.spreadsheet"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -122,3 +125,36 @@ def download_via_service_account(url: str, target_path: Path, label: str = "Goog
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_bytes(data)
     return target_path
+
+
+def build_sheets_service():
+    """Клиент Google Sheets с правом записи — для дозаполнения переводов."""
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+    except ImportError as error:
+        raise SystemExit(
+            "Sheets access requires google-auth and google-api-python-client. "
+            "Run: python -m pip install -r automation/requirements.txt"
+        ) from error
+
+    raw = _credentials_json_text()
+    scopes = [DRIVE_READONLY_SCOPE, SHEETS_SCOPE]
+
+    if raw:
+        try:
+            credentials_info = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise SystemExit("GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON") from error
+
+        if str(credentials_info.get("type", "")).strip() == "service_account":
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_info, scopes=scopes
+            )
+            return build("sheets", "v4", credentials=credentials, cache_discovery=False)
+
+    # Workload Identity Federation: короткоживущие креды выдаёт сам GitHub.
+    import google.auth
+
+    credentials, _ = google.auth.default(scopes=scopes)
+    return build("sheets", "v4", credentials=credentials, cache_discovery=False)
