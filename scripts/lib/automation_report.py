@@ -72,6 +72,9 @@ def default_report() -> dict[str, Any]:
         "finished_at": None,
         "status": "running",
         "run_mode": "",
+        # Исходный набор галочек из дашборда. Нужен, чтобы повтор упавших
+        # локалей заливал ровно то же, что и первый запуск, а не весь режим.
+        "selection": "",
         "plan": {},
         "errors": [],
         "warnings": [],
@@ -86,6 +89,7 @@ def init_report() -> None:
     plan = resolve_run_plan()
     report = default_report()
     report["run_mode"] = plan.get("mode", "")
+    report["selection"] = os.environ.get("ASC_SELECTION", "").strip()
     report["plan"] = plan
     save_report(report)
 
@@ -189,6 +193,10 @@ def print_final_report() -> int:
         f"  Run mode: {report.get('run_mode') or '—'}",
         f"  Status:   {status_label}",
     ]
+
+    # Дашборд читает эту строку, чтобы повтор локалей залил ровно то же самое.
+    if report.get("selection"):
+        lines.append(f"  Selection: {report['selection']}")
 
     if report.get("started_at"):
         lines.append(f"  Started:  {report['started_at']}")
