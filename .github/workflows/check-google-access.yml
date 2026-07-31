@@ -112,8 +112,9 @@ jobs:
                   values = row.get("values") or []
                   if not values:
                       continue
-                  label = (values[0].get("formattedValue") or "").strip()[:20]
+                  # Всё содержимое живёт в колонке B: имя языка, текст, длина.
                   cell = values[1] if len(values) > 1 else {}
+                  label = (cell.get("formattedValue") or "").strip()[:20]
                   eff = cell.get("effectiveFormat", {})
                   own = cell.get("userEnteredFormat", {})
                   if not label and not eff:
