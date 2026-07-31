@@ -24,6 +24,11 @@ on:
         required: false
         default: false
         type: boolean
+      insert_blank_at_row:
+        description: "Вставить пустую строку перед этой строкой (0 — не вставлять)"
+        required: false
+        default: "0"
+        type: string
 
 permissions:
   contents: read
@@ -54,6 +59,7 @@ jobs:
           SHEET_URL: ${{ inputs.sheet_url }}
           DUMP_FORMAT: ${{ inputs.dump_format }}
           REPAIR_ALIGNMENT: ${{ inputs.repair_alignment }}
+          INSERT_BLANK_AT_ROW: ${{ inputs.insert_blank_at_row }}
         run: |
           python3 - <<'PY'
           import os, sys
@@ -96,6 +102,25 @@ jobs:
           except HttpError as error:
               ok = False
               print("ОШИБКА:", str(error)[:400])
+
+          blank_row = int(os.environ.get("INSERT_BLANK_AT_ROW") or 0)
+          if blank_row > 0:
+              print(f"--- Вставка пустой строки перед строкой {blank_row} ---")
+              sheets = build_sheets_service()
+              meta = sheets.spreadsheets().get(
+                  spreadsheetId=file_id, fields="sheets(properties(sheetId,title))"
+              ).execute()
+              sid = next(s["properties"]["sheetId"] for s in meta["sheets"]
+                         if s["properties"]["title"] == "Descriprion")
+              sheets.spreadsheets().batchUpdate(
+                  spreadsheetId=file_id,
+                  body={"requests": [{"insertDimension": {
+                      "range": {"sheetId": sid, "dimension": "ROWS",
+                                "startIndex": blank_row - 1, "endIndex": blank_row},
+                      "inheritFromBefore": False,
+                  }}]},
+              ).execute()
+              print("Готово")
 
           if os.environ.get("REPAIR_ALIGNMENT") == "true":
               print("--- Сброс выравнивания колонки B ---")
