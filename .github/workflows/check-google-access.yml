@@ -1,0 +1,91 @@
+name: Check Google access
+
+# Проверка доступов к Google, ничего не меняющая. Только чтение: включён ли
+# Sheets API и может ли сервисный аккаунт редактировать таблицу. К App Store
+# не обращается вовсе — запускать безопасно в любой момент.
+
+run-name: Проверка доступа к таблице
+
+on:
+  workflow_dispatch:
+    inputs:
+      sheet_url:
+        description: "Ссылка на ASO-таблицу"
+        required: true
+        default: "https://docs.google.com/spreadsheets/d/17I7icTfC4jTwgpWqZbh3t54VS1DHwmksih4_OEOBFwk/edit"
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  check:
+    name: Check Google access
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/328261281705/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: aso-downloader@aso-automation-497804.iam.gserviceaccount.com
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: python -m pip install -r requirements.txt
+
+      - name: Check
+        env:
+          SHEET_URL: ${{ inputs.sheet_url }}
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, "scripts")
+          from google_drive_auth import build_sheets_service, build_drive_service, google_drive_file_id
+          from googleapiclient.errors import HttpError
+
+          file_id = google_drive_file_id(os.environ["SHEET_URL"])
+          ok = True
+
+          print("--- Sheets API ---")
+          try:
+              meta = build_sheets_service().spreadsheets().get(
+                  spreadsheetId=file_id,
+                  fields="properties.title,sheets.properties.title",
+              ).execute()
+              print("ВКЛЮЧЁН. Таблица:", meta["properties"]["title"])
+              print("Вкладки:", ", ".join(s["properties"]["title"] for s in meta["sheets"]))
+          except HttpError as error:
+              ok = False
+              reason = str(error)
+              if "SERVICE_DISABLED" in reason:
+                  print("НЕ ВКЛЮЧЁН: Sheets API выключен в проекте.")
+              elif error.resp.status == 403:
+                  print("НЕТ ДОСТУПА: API включён, но аккаунту не дали доступ к документу.")
+              else:
+                  print("ОШИБКА:", reason[:400])
+
+          print("--- Право на запись в документ ---")
+          try:
+              info = build_drive_service()[0].files().get(
+                  fileId=file_id,
+                  fields="name,capabilities(canEdit)",
+                  supportsAllDrives=True,
+              ).execute()
+              can_edit = info.get("capabilities", {}).get("canEdit", False)
+              print("Документ:", info.get("name"))
+              print("Может редактировать:", "ДА" if can_edit else "НЕТ — доступ выдан только на чтение")
+              ok = ok and can_edit
+          except HttpError as error:
+              ok = False
+              print("ОШИБКА:", str(error)[:400])
+
+          print("--- Итог ---")
+          print("ВСЁ ГОТОВО, переводы запишутся" if ok else "ЕСТЬ ПРОБЛЕМА, смотри выше")
+          sys.exit(0 if ok else 1)
+          PY
