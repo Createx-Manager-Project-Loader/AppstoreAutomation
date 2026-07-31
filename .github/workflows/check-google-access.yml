@@ -114,11 +114,13 @@ jobs:
                   spreadsheetId=file_id,
                   body={"requests": [{"repeatCell": {
                       "range": {"sheetId": sheet_id, "startColumnIndex": 1, "endColumnIndex": 2},
-                      "cell": {},
-                      "fields": "userEnteredFormat.horizontalAlignment",
+                      # Выравнивание очищаем (в ячейке его нет), перенос строк
+                      # наоборот выставляем — одним запросом по маске полей.
+                      "cell": {"userEnteredFormat": {"wrapStrategy": "WRAP"}},
+                      "fields": "userEnteredFormat.horizontalAlignment,userEnteredFormat.wrapStrategy",
                   }}]},
               ).execute()
-              print("Готово, выравнивание сброшено к обычному")
+              print("Готово: выравнивание сброшено, перенос строк включён")
 
           if os.environ.get("DUMP_FORMAT") == "true":
               print("--- Формат ячеек листа Descriprion ---")
@@ -129,14 +131,14 @@ jobs:
                   fields=(
                       "sheets(properties(title,rightToLeft),"
                       "data(rowData(values(formattedValue,"
-                      "effectiveFormat(horizontalAlignment,textDirection),"
-                      "userEnteredFormat(horizontalAlignment,textDirection)))))"
+                      "effectiveFormat(horizontalAlignment,textDirection,wrapStrategy),"
+                      "userEnteredFormat(horizontalAlignment,textDirection,wrapStrategy)))))"
                   ),
               ).execute()["sheets"][0]
 
               print("Лист целиком развёрнут справа налево:",
                     "ДА" if data["properties"].get("rightToLeft") else "нет")
-              print(f"{'стр':>4}  {'A':<22} {'выравнивание':<14} {'направление':<16} задано вручную")
+              print(f"{'стр':>4}  {'колонка B':<22} {'выравнивание':<14} {'перенос':<14} задано вручную")
               for i, row in enumerate(data["data"][0].get("rowData", []), start=1):
                   values = row.get("values") or []
                   if not values:
@@ -149,8 +151,8 @@ jobs:
                   if not label and not eff:
                       continue
                   print(f"{i:>4}  {label:<22} {eff.get('horizontalAlignment', '—'):<14} "
-                        f"{eff.get('textDirection', '—'):<16} "
-                        f"{own.get('textDirection') or own.get('horizontalAlignment') or '—'}")
+                        f"{eff.get('wrapStrategy', '—'):<14} "
+                        f"{own.get('horizontalAlignment') or '—'}")
 
           print("--- Итог ---")
           print("ВСЁ ГОТОВО, переводы запишутся" if ok else "ЕСТЬ ПРОБЛЕМА, смотри выше")
