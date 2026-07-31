@@ -19,6 +19,11 @@ on:
         required: false
         default: false
         type: boolean
+      repair_alignment:
+        description: "Сбросить выравнивание колонки описаний (меняет ТОЛЬКО формат)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -48,6 +53,7 @@ jobs:
         env:
           SHEET_URL: ${{ inputs.sheet_url }}
           DUMP_FORMAT: ${{ inputs.dump_format }}
+          REPAIR_ALIGNMENT: ${{ inputs.repair_alignment }}
         run: |
           python3 - <<'PY'
           import os, sys
@@ -90,6 +96,29 @@ jobs:
           except HttpError as error:
               ok = False
               print("ОШИБКА:", str(error)[:400])
+
+          if os.environ.get("REPAIR_ALIGNMENT") == "true":
+              print("--- Сброс выравнивания колонки B ---")
+              sheets = build_sheets_service()
+              meta = sheets.spreadsheets().get(
+                  spreadsheetId=file_id, fields="sheets(properties(sheetId,title))"
+              ).execute()
+              sheet_id = next(
+                  s["properties"]["sheetId"] for s in meta["sheets"]
+                  if s["properties"]["title"] == "Descriprion"
+              )
+              # Очистка поля по канону Sheets: пустая ячейка + маска полей.
+              # Значение перечисления не указываем вовсе — именно на выдуманном
+              # имени константы предыдущая попытка и словила 400.
+              sheets.spreadsheets().batchUpdate(
+                  spreadsheetId=file_id,
+                  body={"requests": [{"repeatCell": {
+                      "range": {"sheetId": sheet_id, "startColumnIndex": 1, "endColumnIndex": 2},
+                      "cell": {},
+                      "fields": "userEnteredFormat.horizontalAlignment",
+                  }}]},
+              ).execute()
+              print("Готово, выравнивание сброшено к обычному")
 
           if os.environ.get("DUMP_FORMAT") == "true":
               print("--- Формат ячеек листа Descriprion ---")
