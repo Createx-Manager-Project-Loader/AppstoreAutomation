@@ -151,6 +151,74 @@ def translate(text: str, code: str, attempts: int = 3) -> str:
     raise RuntimeError(f"{last_error}")
 
 
+def ensure_block_gaps(
+    service, spreadsheet_id: str, sheet_name: str, is_language
+) -> None:
+    """Разделяет блоки языков ровно одной пустой строкой.
+
+    Блок — это три строки: название языка, текст, число символов. Между ними в
+    таблице принято оставлять пустую строку, но держалось это только на том,
+    что дописанные блоки заканчиваются отступом. Стоило блоку появиться другим
+    путём — из шаблона, руками, из старой версии скрипта, — и языки слипались.
+
+    Поэтому не полагаемся на способ появления: читаем колонку и вставляем
+    пустую строку везде, где название языка стоит вплотную к предыдущему
+    блоку. Идём снизу вверх, иначе каждая вставка сдвигала бы следующие.
+    """
+    try:
+        column = [
+            (row[0] if row else "").strip()
+            for row in service.spreadsheets()
+            .values()
+            .get(spreadsheetId=spreadsheet_id, range=f"'{sheet_name}'!B:B")
+            .execute()
+            .get("values", [])
+        ]
+
+        # Первый блок отступа сверху не требует — он и так первый.
+        missing = [
+            index
+            for index in range(1, len(column))
+            if column[index] and is_language(column[index]) and column[index - 1]
+        ]
+        if not missing:
+            return
+
+        sheet_id = next(
+            sheet["properties"]["sheetId"]
+            for sheet in service.spreadsheets()
+            .get(spreadsheetId=spreadsheet_id, fields="sheets(properties(sheetId,title))")
+            .execute()
+            .get("sheets", [])
+            if sheet["properties"]["title"] == sheet_name
+        )
+
+        service.spreadsheets().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body={
+                "requests": [
+                    {
+                        "insertDimension": {
+                            "range": {
+                                "sheetId": sheet_id,
+                                "dimension": "ROWS",
+                                "startIndex": index,
+                                "endIndex": index + 1,
+                            },
+                            # Формат берём у строки снизу: сверху стоит число
+                            # символов, а его оформление нам не нужно.
+                            "inheritFromBefore": False,
+                        }
+                    }
+                    for index in sorted(missing, reverse=True)
+                ]
+            },
+        ).execute()
+        log(f"Добавлено отступов между блоками: {len(missing)}")
+    except Exception as error:  # noqa: BLE001
+        log(f"ВНИМАНИЕ: не удалось расставить отступы — {error}")
+
+
 def normalize_column_format(service, spreadsheet_id: str, sheet_name: str) -> None:
     """Приводит колонку описаний в читаемый вид: выравнивание и перенос строк.
 
@@ -334,8 +402,10 @@ def main() -> int:
         log(f"{language}: {len(text)} символов")
 
     if not updates and not appends:
+        # Раньше здесь был выход. Но привести таблицу в порядок надо в любом
+        # случае: отступы и перенос строк не зависят от того, нашлось ли что
+        # переводить, а иначе перекошенная таблица так и осталась бы.
         log(f"Всё уже заполнено ({len(skipped_known)} языков) — писать нечего")
-        return 0
 
     # 4. Пишем в таблицу.
     service = build_sheets_service()
@@ -369,6 +439,7 @@ def main() -> int:
             body={"values": rows},
         ).execute()
 
+    ensure_block_gaps(service, spreadsheet_id, sheet_name, locales_for_name)
     normalize_column_format(service, spreadsheet_id, sheet_name)
 
     log(
