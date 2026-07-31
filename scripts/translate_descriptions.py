@@ -353,7 +353,12 @@ def main() -> int:
         ).execute()
 
     if appends:
-        rows: list[list[str | int]] = []
+        # Пустая строка в начале — отступ от последнего блока, который уже был
+        # в таблице. Без неё первый дописанный язык прилипал вплотную к
+        # английскому: между всеми остальными блоками отступ есть, а перед
+        # первым не было. Задвоиться она не может — append всегда начинает
+        # сразу после последней непустой строки.
+        rows: list[list[str | int]] = [[""]]
         for language, text in appends:
             rows.extend([[language], [text], [len(text)], [""]])
         service.spreadsheets().values().append(
