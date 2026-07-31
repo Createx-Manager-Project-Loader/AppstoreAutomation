@@ -14,6 +14,11 @@ on:
         required: true
         default: "https://docs.google.com/spreadsheets/d/17I7icTfC4jTwgpWqZbh3t54VS1DHwmksih4_OEOBFwk/edit"
         type: string
+      dump_format:
+        description: "Показать выравнивание и направление текста по строкам"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -42,6 +47,7 @@ jobs:
       - name: Check
         env:
           SHEET_URL: ${{ inputs.sheet_url }}
+          DUMP_FORMAT: ${{ inputs.dump_format }}
         run: |
           python3 - <<'PY'
           import os, sys
@@ -84,6 +90,37 @@ jobs:
           except HttpError as error:
               ok = False
               print("ОШИБКА:", str(error)[:400])
+
+          if os.environ.get("DUMP_FORMAT") == "true":
+              print("--- Формат ячеек листа Descriprion ---")
+              data = build_sheets_service().spreadsheets().get(
+                  spreadsheetId=file_id,
+                  ranges=["'Descriprion'!A1:B400"],
+                  includeGridData=True,
+                  fields=(
+                      "sheets(properties(title,rightToLeft),"
+                      "data(rowData(values(formattedValue,"
+                      "effectiveFormat(horizontalAlignment,textDirection),"
+                      "userEnteredFormat(horizontalAlignment,textDirection)))))"
+                  ),
+              ).execute()["sheets"][0]
+
+              print("Лист целиком развёрнут справа налево:",
+                    "ДА" if data["properties"].get("rightToLeft") else "нет")
+              print(f"{'стр':>4}  {'A':<22} {'выравнивание':<14} {'направление':<16} задано вручную")
+              for i, row in enumerate(data["data"][0].get("rowData", []), start=1):
+                  values = row.get("values") or []
+                  if not values:
+                      continue
+                  label = (values[0].get("formattedValue") or "").strip()[:20]
+                  cell = values[1] if len(values) > 1 else {}
+                  eff = cell.get("effectiveFormat", {})
+                  own = cell.get("userEnteredFormat", {})
+                  if not label and not eff:
+                      continue
+                  print(f"{i:>4}  {label:<22} {eff.get('horizontalAlignment', '—'):<14} "
+                        f"{eff.get('textDirection', '—'):<16} "
+                        f"{own.get('textDirection') or own.get('horizontalAlignment') or '—'}")
 
           print("--- Итог ---")
           print("ВСЁ ГОТОВО, переводы запишутся" if ok else "ЕСТЬ ПРОБЛЕМА, смотри выше")
