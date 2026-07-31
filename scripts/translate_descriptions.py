@@ -151,17 +151,20 @@ def translate(text: str, code: str, attempts: int = 3) -> str:
     raise RuntimeError(f"{last_error}")
 
 
-def reset_alignment(service, spreadsheet_id: str, sheet_name: str) -> None:
-    """Возвращает выравнивание в колонке описаний к значению по умолчанию.
+def normalize_column_format(service, spreadsheet_id: str, sheet_name: str) -> None:
+    """Приводит колонку описаний в читаемый вид: выравнивание и перенос строк.
 
-    Блоки дописываются с insertDataOption=INSERT_ROWS, а вставленная строка в
-    Google Sheets наследует формат строки над собой. Над первым дописанным
-    блоком стоит счётчик символов — число с выравниванием вправо, — и «вправо»
-    расползалось по цепочке на все языки подряд. Выглядело так, будто виноват
-    арабский: он просто первый по алфавиту.
+    Выравнивание. Блоки дописываются с insertDataOption=INSERT_ROWS, а
+    вставленная строка в Google Sheets наследует формат строки над собой. Над
+    первым дописанным блоком стоит счётчик символов — число с выравниванием
+    вправо, — и «вправо» расползалось по цепочке на все языки подряд. Выглядело
+    так, будто виноват арабский: он просто первый по алфавиту.
 
     Сбрасываем не в LEFT, а в «не задано»: тогда Sheets сам ставит текст влево,
     числа вправо, а арабский и иврит разворачивает как положено.
+
+    Перенос строк. Описание длиной за тысячу символов по умолчанию вылезает на
+    соседние столбцы и закрывает их. WRAP держит текст внутри своей ячейки.
     """
     try:
         meta = (
@@ -187,21 +190,25 @@ def reset_alignment(service, spreadsheet_id: str, sheet_name: str) -> None:
                                 "startColumnIndex": 1,
                                 "endColumnIndex": 2,
                             },
-                            # Очистка поля по канону Sheets: пустая ячейка плюс
-                            # маска полей. Имя значения перечисления не
-                            # указываем вовсе — на выдуманном имени константы
-                            # первая попытка словила 400 от API.
-                            "cell": {},
-                            "fields": "userEnteredFormat.horizontalAlignment",
+                            # Выравнивание очищаем — по канону Sheets это
+                            # отсутствие поля в ячейке плюс маска. Имя значения
+                            # перечисления не указываем вовсе: именно на
+                            # выдуманной константе первая попытка словила 400.
+                            # Перенос строк, наоборот, выставляем явно.
+                            "cell": {"userEnteredFormat": {"wrapStrategy": "WRAP"}},
+                            "fields": (
+                                "userEnteredFormat.horizontalAlignment,"
+                                "userEnteredFormat.wrapStrategy"
+                            ),
                         }
                     }
                 ]
             },
         ).execute()
-        log("Выравнивание в колонке описаний сброшено к обычному")
+        log("Колонка описаний приведена в порядок: выравнивание и перенос строк")
     except Exception as error:  # noqa: BLE001
         # Косметика не должна ронять заливку: переводы уже записаны.
-        log(f"ВНИМАНИЕ: не удалось поправить выравнивание — {error}")
+        log(f"ВНИМАНИЕ: не удалось поправить формат колонки — {error}")
 
 
 def main() -> int:
@@ -357,7 +364,7 @@ def main() -> int:
             body={"values": rows},
         ).execute()
 
-    reset_alignment(service, spreadsheet_id, sheet_name)
+    normalize_column_format(service, spreadsheet_id, sheet_name)
 
     log(
         f"Записано: {len(updates) + len(appends)} языков "
