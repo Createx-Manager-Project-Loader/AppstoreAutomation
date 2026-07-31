@@ -151,6 +151,59 @@ def translate(text: str, code: str, attempts: int = 3) -> str:
     raise RuntimeError(f"{last_error}")
 
 
+def reset_alignment(service, spreadsheet_id: str, sheet_name: str) -> None:
+    """Возвращает выравнивание в колонке описаний к значению по умолчанию.
+
+    Блоки дописываются с insertDataOption=INSERT_ROWS, а вставленная строка в
+    Google Sheets наследует формат строки над собой. Над первым дописанным
+    блоком стоит счётчик символов — число с выравниванием вправо, — и «вправо»
+    расползалось по цепочке на все языки подряд. Выглядело так, будто виноват
+    арабский: он просто первый по алфавиту.
+
+    Сбрасываем не в LEFT, а в «не задано»: тогда Sheets сам ставит текст влево,
+    числа вправо, а арабский и иврит разворачивает как положено.
+    """
+    try:
+        meta = (
+            service.spreadsheets()
+            .get(spreadsheetId=spreadsheet_id, fields="sheets(properties(sheetId,title))")
+            .execute()
+        )
+        sheet_id = next(
+            sheet["properties"]["sheetId"]
+            for sheet in meta.get("sheets", [])
+            if sheet["properties"]["title"] == sheet_name
+        )
+
+        service.spreadsheets().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body={
+                "requests": [
+                    {
+                        "repeatCell": {
+                            # Вся колонка B этого листа — там и живут блоки.
+                            "range": {
+                                "sheetId": sheet_id,
+                                "startColumnIndex": 1,
+                                "endColumnIndex": 2,
+                            },
+                            "cell": {
+                                "userEnteredFormat": {
+                                    "horizontalAlignment": "HORIZONTAL_ALIGNMENT_UNSPECIFIED"
+                                }
+                            },
+                            "fields": "userEnteredFormat.horizontalAlignment",
+                        }
+                    }
+                ]
+            },
+        ).execute()
+        log("Выравнивание в колонке описаний сброшено к обычному")
+    except Exception as error:  # noqa: BLE001
+        # Косметика не должна ронять заливку: переводы уже записаны.
+        log(f"ВНИМАНИЕ: не удалось поправить выравнивание — {error}")
+
+
 def main() -> int:
     from prepare_metadata import (
         aso_xlsx_path,
@@ -303,6 +356,8 @@ def main() -> int:
             insertDataOption="INSERT_ROWS",
             body={"values": rows},
         ).execute()
+
+    reset_alignment(service, spreadsheet_id, sheet_name)
 
     log(
         f"Записано: {len(updates) + len(appends)} языков "
