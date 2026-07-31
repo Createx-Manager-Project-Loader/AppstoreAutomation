@@ -187,11 +187,11 @@ def reset_alignment(service, spreadsheet_id: str, sheet_name: str) -> None:
                                 "startColumnIndex": 1,
                                 "endColumnIndex": 2,
                             },
-                            "cell": {
-                                "userEnteredFormat": {
-                                    "horizontalAlignment": "HORIZONTAL_ALIGNMENT_UNSPECIFIED"
-                                }
-                            },
+                            # Очистка поля по канону Sheets: пустая ячейка плюс
+                            # маска полей. Имя значения перечисления не
+                            # указываем вовсе — на выдуманном имени константы
+                            # первая попытка словила 400 от API.
+                            "cell": {},
                             "fields": "userEnteredFormat.horizontalAlignment",
                         }
                     }
