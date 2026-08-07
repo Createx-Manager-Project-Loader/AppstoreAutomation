@@ -26,8 +26,11 @@ DESCRIPTION_LIMIT = 4000
 # Значение должно совпадать с тем, что проверяет дашборд.
 PASSPORT_AUDIENCE = "asc-console"
 
-# Язык в таблице → код переводчика. Проверено запросами к сервису: работают
-# все, кроме мексиканского испанского — для него берём обычный испанский.
+# Язык в таблице → код переводчика. Проверено запросами к сервису.
+#
+# У региональных языков два написания: ASO пишет регион словом
+# («Spanish Spain»), сокращённая форма («spanish es») осталась с прежних
+# таблиц. Держим оба — иначе язык молча остаётся без описания.
 TRANSLATOR_CODES = {
     "arabic": "AR",
     "catalan": "CA",
@@ -40,6 +43,7 @@ TRANSLATOR_CODES = {
     "finnish": "FI",
     "french": "FR",
     "french ca": "FR-CA",
+    "french canada": "FR-CA",
     "german": "DE",
     "greek": "EL",
     "hebrew": "HE",
@@ -53,14 +57,18 @@ TRANSLATOR_CODES = {
     "norwegian": "NB",
     "polish": "PL",
     "portuguese br": "PT-BR",
+    "portuguese brazil": "PT-BR",
     "portuguese pt": "PT-PT",
+    "portuguese portugal": "PT-PT",
     "romanian": "RO",
     "russian": "RU",
     "slovak": "SK",
     # Мексиканского испанского у сервиса нет (ES-MX → 400), берём
     # латиноамериканский: он ближе к мексиканскому, чем общий ES.
     "spanish mx": "ES-419",
+    "spanish mexico": "ES-419",
     "spanish es": "ES",
+    "spanish spain": "ES",
     "swedish": "SV",
     "thai": "TH",
     "turkish": "TR",
