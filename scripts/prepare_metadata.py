@@ -536,6 +536,30 @@ def locales_for_name(name):
     return LANGUAGE_TO_LOCALES.get(normalized, [])
 
 
+# Каноническое написание локали по её имени в любом регистре. Карта собирается
+# из того же списка языков, поэтому не разъедется с ним при добавлении языка.
+CANONICAL_LOCALES = {
+    locale.lower(): locale
+    for locales in LANGUAGE_TO_LOCALES.values()
+    for locale in locales
+}
+
+
+def locales_for_folder(name):
+    """То же, что locales_for_name, но для имени папки в архиве скриншотов.
+
+    Папки называют люди, и пишут они как привычно: RU, en-us, Pt-Br. App Store
+    принимает ровно одно написание, поэтому известную локаль в любом регистре
+    приводим к каноническому виду. Разбор ASO-таблицы этим НЕ пользуется
+    намеренно: там `locales_for_name` смотрит на содержимое ячеек, и ячейка со
+    словом `NO` («нет») не должна вдруг стать норвежским.
+    """
+    canonical = CANONICAL_LOCALES.get(name.strip().lower())
+    if canonical:
+        return [canonical]
+    return locales_for_name(name)
+
+
 def column_index(cell_reference):
     letters = "".join(character for character in cell_reference if character.isalpha())
     index = 0
@@ -1123,18 +1147,40 @@ def safe_zip_members(zip_file):
         if member.is_dir():
             continue
 
-        locale_index = next((index for index, part in enumerate(parts) if locales_for_name(part)), None)
+        locale_index = next((index for index, part in enumerate(parts) if locales_for_folder(part)), None)
         if locale_index is None:
             continue
 
         locale_name = parts[locale_index]
-        locales = locales_for_name(locale_name)
+        locales = locales_for_folder(locale_name)
         if not locales:
             continue
         if Path(parts[-1]).suffix.lower() not in IMAGE_EXTENSIONS:
             continue
         for locale in locales:
             yield member, locale, Path(*parts[locale_index + 1:])
+
+
+def unmatched_screenshot_folders(zip_file):
+    """Папки с картинками, в пути которых не нашлось ни одной локали.
+
+    Без этого ошибка в имени папки давала молчаливый ноль: архив скачан, ZIP
+    целый, скриншотов ноль — и по логу не понять, что именно не так.
+    """
+    unmatched = []
+    for member in zip_file.infolist():
+        if member.is_dir():
+            continue
+        parts = [part for part in Path(member.filename).parts if part not in ("", ".")]
+        if not parts or parts[0] == "__MACOSX":
+            continue
+        if Path(parts[-1]).suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        if any(locales_for_folder(part) for part in parts):
+            continue
+        if parts[0] not in unmatched:
+            unmatched.append(parts[0])
+    return unmatched
 
 
 def clean_prepared_screenshots():
@@ -1170,6 +1216,23 @@ def prepare_screenshots_from_zip():
                 shutil.copyfileobj(source, destination)
             locales.add(locale)
             copied += 1
+
+        unmatched = unmatched_screenshot_folders(zip_file)
+
+    if unmatched:
+        message = (
+            "Folder(s) not recognized as locales: "
+            + ", ".join(unmatched)
+            + ". Screenshots from them were NOT uploaded. A folder must be named "
+            "with an App Store locale code (en-US, ru, de-DE, pt-BR, zh-Hans); "
+            "letter case does not matter."
+        )
+        print(f"WARNING: {message}", file=sys.stderr)
+        # И в отчёт: лог читают, когда уже пошли разбираться, а отчёт видно сразу.
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+        from automation_report import add_message
+
+        add_message("warnings", message)
 
     print(f"Prepared {copied} screenshot file(s) for {len(locales)} locale(s) from {zip_path}.")
     return sorted(locales), copied, len(locales)
