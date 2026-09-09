@@ -12,6 +12,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from paths import AUTOMATION_DIR, CONFIG_PATH, METADATA_DIR, PREPARED_DIR, REPO_ROOT
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from metaclean import strip_metadata  # noqa: E402
+
 ROOT_DIR = REPO_ROOT
 CONFIG_YAML = CONFIG_PATH
 CONFIG_ENV = REPO_ROOT / "config.env"
@@ -521,6 +524,13 @@ def screenshots_zip_path():
         f"Downloading screenshots ZIP ({screenshots_zip_url_source()}) into {DOWNLOADED_SCREENSHOTS_ZIP}..."
     )
     download_google_drive_file(zip_url, DOWNLOADED_SCREENSHOTS_ZIP, "screenshots ZIP")
+
+    # Метаданные снимаются здесь — до распаковки, целым архивом. Сервис
+    # сохраняет структуру путей, поэтому разбору ниже по течению всё равно,
+    # что архив успел съездить на очистку. Любой сбой останавливает прогон:
+    # очистка обязательна, см. scripts/metaclean.py.
+    strip_metadata(DOWNLOADED_SCREENSHOTS_ZIP, "screenshots ZIP")
+
     SCREENSHOTS_ZIP_DOWNLOADED = True
     return DOWNLOADED_SCREENSHOTS_ZIP
 
