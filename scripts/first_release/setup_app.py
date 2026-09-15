@@ -327,10 +327,13 @@ class Setup:
     # экспортное соответствие ──────────────────────────────────────────────
 
     def latest_build(self):
-        builds = self.client.get_all(
-            f"/builds?filter[app]={self.app_id}&limit=1&sort=-uploadedDate"
-            "&fields[builds]=version,usesNonExemptEncryption,uploadedDate")
-        return builds[0] if builds else None
+        # request, а не get_all: get_all идёт по links.next и с limit=1 обходит
+        # все сборки приложения по одной. Нужна ровно первая страница.
+        payload = self.client.request(
+            "GET", f"/builds?filter[app]={self.app_id}&limit=1&sort=-uploadedDate"
+                   "&fields[builds]=version,usesNonExemptEncryption,uploadedDate")
+        data = payload.get("data") or []
+        return data[0] if data else None
 
     def set_export(self, want: bool) -> None:
         build = self.latest_build()

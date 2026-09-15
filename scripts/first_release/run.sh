@@ -11,7 +11,11 @@
 # существовать, иначе править в них нечего.
 set -euo pipefail
 
-source "$(cd "$(dirname "$0")/.." && pwd)/lib/paths.sh"
+FIRST_RELEASE_SCRIPTS="$(cd "$(dirname "$0")/.." && pwd)"
+source "$FIRST_RELEASE_SCRIPTS/lib/paths.sh"
+# Раскладывает ключ из секрета в файл и выставляет ASC_KEY_ID / ASC_ISSUER_ID /
+# ASC_KEY_PATH / APP_IDENTIFIER — те же имена, что у обычных прогонов.
+source "$FIRST_RELEASE_SCRIPTS/load_account_config.sh"
 
 FIRST_RELEASE_DIR="${FIRST_RELEASE_DIR:-$PREPARED_DIR/first-release}"
 LISTING_PATH="${FIRST_RELEASE_LISTING:-$REPO_ROOT/app_store_listing.yml}"
