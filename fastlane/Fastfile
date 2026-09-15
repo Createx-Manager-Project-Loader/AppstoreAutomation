@@ -34,6 +34,48 @@ platform :ios do
     )
   end
 
+  desc "First release: full metadata for an app that is not in the store yet"
+  lane :first_release do
+    # Отличие от upload_metadata: individual_metadata_items НЕ задаётся —
+    # заливается всё, что разложено на диске, а не выбранный набор полей.
+    # Первая заливка заполняет карточку целиком, выбирать тут нечего.
+    options = {
+      api_key: app_store_api_key,
+      app_identifier: ENV.fetch("APP_IDENTIFIER"),
+      metadata_path: ENV.fetch("FIRST_RELEASE_METADATA_PATH"),
+      skip_binary_upload: true,
+      skip_screenshots: ENV["FIRST_RELEASE_SCREENSHOTS_PATH"].nil?,
+      skip_app_version_update: false,
+      submit_for_review: false,
+      overwrite_screenshots: true,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
+      force: true
+    }
+
+    screenshots = ENV["FIRST_RELEASE_SCREENSHOTS_PATH"]
+    options[:screenshots_path] = screenshots if screenshots
+
+    # Возрастной рейтинг здесь не передаётся: его пишет setup_app.py прямым
+    # вызовом ageRatingDeclaration, чтобы у анкеты был один владелец.
+
+    # Способ релиза словами листинга (§6 канона): manual | automatic | phased.
+    # manual передаётся ЯВНО как automatic_release: false. Не передать ничего —
+    # не то же самое: deliver тогда пишет «Release type will not be set» и
+    # оставляет то, что стояло в карточке раньше. Проверено на живом
+    # приложении: с пустым значением releaseType остался AFTER_APPROVAL.
+    case ENV["FIRST_RELEASE_RELEASE_TYPE"].to_s.downcase
+    when "manual" then options[:automatic_release] = false
+    when "automatic" then options[:automatic_release] = true
+    when "phased"
+      options[:automatic_release] = true
+      options[:phased_release] = true
+    when "scheduled" then options[:auto_release_date] = ENV.fetch("FIRST_RELEASE_RELEASE_DATE")
+    end
+
+    deliver(options)
+  end
+
   desc "Upload App Store Connect metadata and screenshots"
   lane :upload_metadata do
     deliver(
