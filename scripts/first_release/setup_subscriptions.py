@@ -125,10 +125,19 @@ class Subscriptions:
 
     def product(self, group_id: str, product: dict, notes: str | None) -> str:
         product_id = product["product_id"]
-        for existing in self.client.get_all(
-                f"/subscriptionGroups/{group_id}/subscriptions?limit=100"):
-            if existing["attributes"].get("productId") == product_id:
-                return existing["id"]
+
+        # Ищем по ВСЕМ группам приложения, а не только по целевой: product id
+        # уникален в пределах приложения, и продукт мог быть заведён раньше в
+        # соседней группе. Найдя, переиспользуем — плодить дубль всё равно
+        # не дадут.
+        for group in self.client.get_all(f"/apps/{self.app_id}/subscriptionGroups?limit=50"):
+            for existing in self.client.get_all(
+                    f"/subscriptionGroups/{group['id']}/subscriptions?limit=100"):
+                if existing["attributes"].get("productId") == product_id:
+                    if group["id"] != group_id:
+                        print(f"    продукт уже есть в группе "
+                              f"«{group['attributes'].get('referenceName')}» — беру его")
+                    return existing["id"]
 
         attributes = {
             "name": product["display_name"],
@@ -139,11 +148,21 @@ class Subscriptions:
         if notes:
             attributes["reviewNote"] = notes
 
-        created = self.client.request("POST", "/subscriptions", json={"data": {
-            "type": "subscriptions",
-            "attributes": attributes,
-            "relationships": {"group": {
-                "data": {"type": "subscriptionGroups", "id": group_id}}}}})
+        try:
+            created = self.client.request("POST", "/subscriptions", json={"data": {
+                "type": "subscriptions",
+                "attributes": attributes,
+                "relationships": {"group": {
+                    "data": {"type": "subscriptionGroups", "id": group_id}}}}})
+        except AppStoreConnectError as error:
+            if "already been used" in str(error):
+                # Apple не возвращает product id в оборот даже после удаления
+                # продукта. Проверено: удалённый id создать заново нельзя.
+                raise Problem(
+                    f"product id «{product_id}» уже занят в этом приложении и вернуть его "
+                    "нельзя — Apple не отдаёт идентификатор обратно даже после удаления "
+                    "продукта. Нужен другой id в файле листинга") from error
+            raise
         return created["data"]["id"]
 
     def localization(self, sub_id: str, product: dict) -> None:
@@ -295,36 +314,55 @@ def territory_of(price_point_id: str) -> str:
     return _json.loads(base64.urlsafe_b64decode(padded))["t"]
 
 
-def products_from(listing: dict) -> list[dict]:
+def products_from(listing: dict) -> tuple[list[dict], list[str]]:
+    """Продукты, которые можно заводить, и причины по тем, которые нельзя.
+
+    Продукт заводится только целиком: без цены или без описания он застрянет
+    в MISSING_METADATA и всё равно не уйдёт на ревью. Поэтому неполный
+    продукт пропускается целиком, а остальные заводятся — одна незакрытая
+    строка не должна отменять весь пейволл.
+    """
     raw = dig(listing, "subscriptions.products")
     if not isinstance(raw, list) or not raw:
-        raise Problem("subscriptions.products: нет ни одного продукта")
+        return [], ["subscriptions.products: нет ни одного продукта"]
 
-    out = []
+    out, skipped = [], []
     for index, item in enumerate(raw, start=1):
         if not isinstance(item, dict):
-            raise Problem(f"продукт №{index}: ожидается блок полей")
+            skipped.append(f"продукт №{index}: ожидается блок полей")
+            continue
+
+        name = value_of(item, "id")[0] or f"№{index}"
+        missing = []
 
         def take(key: str):
             text, why = value_of(item, key)
             if text is None:
-                raise Problem(f"продукт №{index}, {key}: {why}")
+                missing.append(f"{key} ({why})")
             return text
 
-        price_text = take("price")
+        values = {key: take(key) for key in ("id", "display_name", "description", "price")}
+        duration = item.get("duration") or take("duration")
+
+        if missing:
+            skipped.append(f"продукт {name}: не заполнено — {', '.join(missing)}")
+            continue
+
         try:
-            price = float(str(price_text).lstrip("$").replace(",", "."))
-        except ValueError as error:
-            raise Problem(f"продукт №{index}, price: «{price_text}» не похоже на цену") from error
+            price = float(str(values["price"]).lstrip("$").replace(",", "."))
+            period = period_of(duration)
+        except (ValueError, Problem) as error:
+            skipped.append(f"продукт {name}: {error}")
+            continue
 
         out.append({
-            "product_id": take("id"),
-            "display_name": take("display_name"),
-            "description": take("description"),
-            "period": period_of(item.get("duration") or take("duration")),
+            "product_id": values["id"],
+            "display_name": values["display_name"],
+            "description": values["description"],
+            "period": period,
             "price": price,
         })
-    return out
+    return out, skipped
 
 
 def main() -> int:
@@ -355,15 +393,20 @@ def main() -> int:
     shots = args.screenshots if args.screenshots and args.screenshots.is_dir() else None
     setup = Subscriptions(client, app["id"], listing, locale, shots)
 
-    try:
-        group_name, why = value_of(listing, "subscriptions.group")
-        if group_name is None:
-            raise Problem(f"subscriptions.group: {why}")
-        notes, _ = value_of(listing, "subscriptions.notes")
-        products = products_from(listing)
-    except Problem as error:
-        print(f"ERROR: {error}", file=sys.stderr)
-        return 1
+    group_name, why = value_of(listing, "subscriptions.group")
+    if group_name is None:
+        print(f"Группа подписок не закрыта ({why}) — продукты не заводим.")
+        return 0
+    notes, _ = value_of(listing, "subscriptions.notes")
+    products, skipped = products_from(listing)
+
+    if skipped:
+        print(f"Пропущено продуктов: {len(skipped)}")
+        for line in skipped:
+            print(f"  - {line}")
+    if not products:
+        print("Заводить нечего — ни один продукт не закрыт полностью.")
+        return 0
 
     failures = []
     try:
@@ -374,8 +417,15 @@ def main() -> int:
         for product in products:
             print(f"  продукт {product['product_id']} ({product['period']}, "
                   f"{product['price']})")
-            sub_id = (setup.apply(group_id, product, notes) if not args.verify
-                      else find_subscription(setup, group_id, product["product_id"]))
+            try:
+                sub_id = (setup.apply(group_id, product, notes) if not args.verify
+                          else find_subscription(setup, group_id, product["product_id"]))
+            except (Problem, AppStoreConnectError) as error:
+                # Один сломанный продукт не отменяет остальные: у каждого свой
+                # id, своя цена и свой кадр — общего у них только группа.
+                print(f"    НЕ ЗАВЕДЁН: {error}", file=sys.stderr)
+                failures.append(f"{product['product_id']}: {str(error)[:80]}")
+                continue
             step = Step(product["product_id"], "READY_TO_SUBMIT",
                         lambda _want: None, lambda: setup.state(sub_id))
             got, ok = read_back(step, attempts=1 if args.verify else 4)

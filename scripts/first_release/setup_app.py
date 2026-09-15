@@ -6,6 +6,10 @@ deliver кладёт в стор тексты, скриншоты и конта�
 рекламный идентификатор, экспортное соответствие — живёт в отдельных
 эндпоинтах, и их приходится дёргать самим.
 
+Незаполненное или неподтверждённое поле прогон не роняет: оно просто не
+заливается, остаётся в сторе пустым и попадает в список пропущенных. Догадка
+наверх при этом не уезжает — пропуск и есть отказ её заливать.
+
 Каждый шаг после записи **читает значение обратно** и сравнивает с тем, что
 просили. Ответ 200 на PATCH не значит, что поле встало: у ASC хватает мест,
 где запись принимается и тихо игнорируется. Прогон падает на первом
@@ -67,6 +71,9 @@ class Setup:
         self.listing = listing
         self._app_info_id: str | None = None
         self._version_id: str | None = None
+        # Поля, которые заливать нечем или нельзя. Прогон из-за них не встаёт:
+        # в сторе они остаются пустыми, а список уезжает в вывод.
+        self.skipped: list[str] = []
 
     # ── ссылки на дочерние объекты ────────────────────────────────────────
 
@@ -104,23 +111,27 @@ class Setup:
         if rights:
             want = CONTENT_RIGHTS.get(str(rights).lower())
             if want is None:
-                raise Problem(f"content_rights: не знаю значения «{rights}»")
-            out.append(Step("права на контент", want, self.set_content_rights, self.get_content_rights))
+                self.skipped.append(f"app_information.content_rights: не знаю значения «{rights}»")
+            else:
+                out.append(Step("права на контент", want,
+                                self.set_content_rights, self.get_content_rights))
 
         rating = dig(self.listing, "age_rating")
-        if rating is None:
-            raise Problem("age_rating: нет в файле — без анкеты приложение не отправить")
         answers = rating.get("answers") if isinstance(rating, dict) else None
-        if not isinstance(answers, dict) or not answers:
+        status = str(rating.get("status") or "") if isinstance(rating, dict) else ""
+        if rating is None:
+            self.skipped.append("age_rating: нет в файле")
+        elif not isinstance(answers, dict) or not answers:
             # Строка вида «4+» ответами на анкету не является: «4+» Apple
             # считает сама, а на вход эндпоинт принимает только ответы.
-            raise Problem(
+            self.skipped.append(
                 "age_rating: нужен блок answers с ответами на анкету Apple, "
                 f"а в файле лежит «{rating}»")
-        status = str(rating.get("status") or "")
-        if status in ("guessed", "unanswered"):
-            raise Problem(f"age_rating: статус {status} — рейтинг не уезжает догадкой")
-        out.append(Step("возрастной рейтинг", answers, self.set_age_rating, self.get_age_rating))
+        elif status in ("guessed", "unanswered"):
+            self.skipped.append(f"age_rating: статус {status} — рейтинг не уезжает догадкой")
+        else:
+            out.append(Step("возрастной рейтинг", answers,
+                            self.set_age_rating, self.get_age_rating))
 
         tier = self.field("pricing.tier", required=False)
         if tier:
@@ -135,10 +146,13 @@ class Setup:
                             lambda want: self.set_countries(countries),
                             self.get_countries))
 
-        idfa = dig(self.listing, "declarations.uses_idfa")
+        idfa = self.field("declarations.uses_idfa", required=False)
         if idfa is not None:
-            want = self.as_bool(self.field("declarations.uses_idfa"), "uses_idfa")
-            out.append(Step("рекламный идентификатор", want, self.set_idfa, self.get_idfa))
+            try:
+                want = self.as_bool(idfa, "declarations.uses_idfa")
+                out.append(Step("рекламный идентификатор", want, self.set_idfa, self.get_idfa))
+            except Problem as error:
+                self.skipped.append(str(error))
 
         export = self.field("declarations.export_compliance", required=False)
         if export:
@@ -152,6 +166,7 @@ class Setup:
         if text is None:
             if required:
                 raise Problem(f"{path}: {why}")
+            self.skipped.append(f"{path}: {why}")
             return None
         return text
 
@@ -452,6 +467,11 @@ def main() -> int:
     if failures:
         print(f"ERROR: не встало: {', '.join(failures)}", file=sys.stderr)
         return 1
+    if setup.skipped:
+        print(f"\nПропущено: {len(setup.skipped)} — в стор не уедет, останется пустым:")
+        for line in setup.skipped:
+            print(f"  - {line}")
+
     if not args.dry_run:
         print(f"Проверено обратным чтением: {len(steps)} из {len(steps)}.")
     return 0

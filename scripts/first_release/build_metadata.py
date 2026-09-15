@@ -8,9 +8,11 @@ upload_metadata.rb), плюс то, что deliver принимает не фа�
 возрастной рейтинг и признаки для отправки.
 
 Главное правило, общее с консолью: **в стор уезжает только подтверждённое**.
-Поле со статусом guessed или unanswered останавливает сборку. Смысл статусов
-пропадает, если их можно молча пропустить: guessed это догадка скилла, которую
-никто не сверял, а unanswered — вопрос, на который не ответили.
+Поле со статусом guessed или unanswered не заливается — но и прогон не
+останавливает: оно просто остаётся в сторе пустым, а его имя попадает в список
+пропущенных. Так заливается всё, что готово, и не уезжает ни одна догадка —
+раньше такое поле роняло весь прогон, и из-за одной незакрытой строки нельзя
+было залить остальные тридцать.
 """
 
 import argparse
@@ -101,17 +103,6 @@ def normalize_category(text: str) -> str:
     )
 
 
-# Необязательные поля: их отсутствие не останавливает сборку.
-# Всё остальное обязано быть подтверждено.
-OPTIONAL = {
-    "app_information.secondary_category",
-    "version.promotional_text",
-    "version.marketing_url",
-    "review_info.demo_user",
-    "review_info.demo_password",
-}
-
-
 class Problem(Exception):
     pass
 
@@ -161,12 +152,20 @@ def build(listing: dict, out_dir: Path) -> dict:
     metadata = out_dir / "metadata"
     locale_dir = metadata / locale
 
-    problems, written = [], []
+    problems, written, skipped = [], [], []
 
     def take(path):
+        """Значение поля, если его можно заливать. Иначе None и запись в пропуски.
+
+        Незаполненное поле и неподтверждённое — разные вещи, но исход у них
+        один: наверх не уезжает ничего. Пустое заливать нечем, а догадку
+        заливать нельзя. Поэтому прогон не встаёт, а просто оставляет поле
+        пустым в сторе и называет его в конце — дозаполнить можно позже,
+        руками или следующим прогоном.
+        """
         text, why = value_of(listing, path)
-        if text is None and path not in OPTIONAL:
-            problems.append(f"{path}: {why}")
+        if text is None:
+            skipped.append(f"{path}: {why}")
         return text
 
     for path, name in {**VERSION_FIELDS, **APP_FIELDS}.items():
@@ -187,12 +186,24 @@ def build(listing: dict, out_dir: Path) -> dict:
             try:
                 text = normalize_category(text)
             except Problem as error:
-                problems.append(f"{path}: {error}")
+                skipped.append(f"{path}: {error}")
                 continue
         write(metadata / name, text)
         written.append(name)
 
+    # Контакт для ревью Apple принимает только целиком: на PATCH с пустым
+    # именем она отвечает «You must provide a value for contactFirstName».
+    # Поэтому либо все четыре поля, либо ни одного — половина хуже, чем ничего.
+    contact = ["review_info.first_name", "review_info.last_name",
+               "review_info.phone", "review_info.email"]
+    contact_ready = all(value_of(listing, path)[0] is not None for path in contact)
+    if not contact_ready:
+        skipped.append("review_info: контакт заливается только целиком, "
+                       "а заполнены не все четыре поля — пропущен")
+
     for path, name in REVIEW_FIELDS.items():
+        if path in contact and not contact_ready:
+            continue
         text = take(path)
         if text is None:
             continue
@@ -200,7 +211,7 @@ def build(listing: dict, out_dir: Path) -> dict:
             # Apple проверяет номер и отвечает «must be in a valid format»
             # уже посреди заливки. Ловим раньше, чтобы не ронять прогон
             # на середине карточки.
-            problems.append(
+            skipped.append(
                 f"{path}: «{text}» — нужен международный формат с кодом страны, "
                 "например +44 844 209 0611")
             continue
@@ -221,11 +232,12 @@ def build(listing: dict, out_dir: Path) -> dict:
         if text is not None:
             options[key] = text
 
-    if problems:
-        raise Problem(problems)
+    if not written:
+        raise Problem(skipped)
 
     write_json(out_dir / "deliver_options.json", options)
-    return {"locale": locale, "written": written, "options": options}
+    return {"locale": locale, "written": written,
+            "options": options, "skipped": skipped}
 
 
 def write_json(path: Path, payload) -> None:
@@ -252,15 +264,23 @@ def main() -> int:
     try:
         result = build(listing, args.out)
     except Problem as error:
-        print("ERROR: листинг не готов к заливке, незакрытые поля:", file=sys.stderr)
+        print("ERROR: заливать нечего — ни одно поле листинга не закрыто:", file=sys.stderr)
         for line in error.args[0]:
             print(f"  - {line}", file=sys.stderr)
-        print("Чинится в файле у разработчика: в стор уезжает только подтверждённое.", file=sys.stderr)
         return 1
 
-    print(f"Locale: {result['locale']}; files: {len(result['written'])}")
+    print(f"Локаль: {result['locale']}; файлов: {len(result['written'])}")
     for name in result["written"]:
         print(f"  {name}")
+
+    if result["skipped"]:
+        # Не ошибка, но и не мелочь: в сторе эти поля останутся пустыми.
+        print(f"\nПропущено полей: {len(result['skipped'])} — "
+              "в стор они не уедут и останутся пустыми:")
+        for line in result["skipped"]:
+            print(f"  - {line}")
+        print("Пустое поле дозаполняется позже: правкой в файле и повторным "
+              "прогоном либо руками в App Store Connect.")
     return 0
 
 
