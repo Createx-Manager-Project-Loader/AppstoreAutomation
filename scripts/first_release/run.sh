@@ -7,8 +7,10 @@
 # доставляется то, до чего deliver не дотягивается: цена, страны, анкета
 # рейтинга, права на контент, рекламный идентификатор.
 #
-# Последним шагом стоит setup_app.py не случайно: версия и карточка должны
-# существовать, иначе править в них нечего.
+# Порядок трёх последних шагов не переставляется. deliver создаёт версию и
+# карточку — без них прямым вызовам нечего править. Подписки идут после цены
+# и стран приложения: доступность продукта по странам берётся из них, а без
+# доступности Apple не даёт поставить продукту цену.
 set -euo pipefail
 
 FIRST_RELEASE_SCRIPTS="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,7 +33,7 @@ log_info "Листинг: $LISTING_PATH"
 log_info "Приложение: ${APP_IDENTIFIER:-<не задано>}"
 
 # 1. Листинг → раскладка для deliver. Падает, если есть неподтверждённые поля.
-log_step "Шаг 1/4: раскладка метаданных из листинга"
+log_step "Шаг 1/5: раскладка метаданных из листинга"
 rm -rf "$FIRST_RELEASE_DIR"
 python3 "$SCRIPT_DIR/first_release/build_metadata.py" "$LISTING_PATH" --out "$FIRST_RELEASE_DIR"
 
@@ -39,7 +41,7 @@ python3 "$SCRIPT_DIR/first_release/build_metadata.py" "$LISTING_PATH" --out "$FI
 #    обязательно снять метаданные, разложить по локалям.
 SCREENSHOTS_PATH=""
 if [[ -n "${SCREENSHOTS_ZIP_URL:-}" ]]; then
-  log_step "Шаг 2/4: скриншоты"
+  log_step "Шаг 2/5: скриншоты"
   python3 - <<'PY'
 import sys, os
 sys.path.insert(0, os.path.join(os.environ["SCRIPT_DIR"]))
@@ -49,11 +51,11 @@ print(f"Скриншоты разложены в {PREPARED_SCREENSHOTS_DIR}")
 PY
   SCREENSHOTS_PATH="$PREPARED_DIR/screenshots"
 else
-  log_step "Шаг 2/4: скриншоты пропущены (SCREENSHOTS_ZIP_URL не задан)"
+  log_step "Шаг 2/5: скриншоты пропущены (SCREENSHOTS_ZIP_URL не задан)"
 fi
 
 # 3. deliver: тексты карточки, категории, контакты ревью, скриншоты.
-log_step "Шаг 3/4: заливка карточки через deliver"
+log_step "Шаг 3/5: заливка карточки через deliver"
 export FIRST_RELEASE_METADATA_PATH="$FIRST_RELEASE_DIR/metadata"
 if [[ -n "$SCREENSHOTS_PATH" ]]; then
   export FIRST_RELEASE_SCREENSHOTS_PATH="$SCREENSHOTS_PATH"
@@ -69,7 +71,22 @@ log_info "Способ релиза: ${FIRST_RELEASE_RELEASE_TYPE:-manual}"
 run_fastlane first_release
 
 # 4. То, чего в deliver нет. Каждое поле после записи читается обратно.
-log_step "Шаг 4/4: цена, страны, рейтинг, права, IDFA"
+log_step "Шаг 4/5: цена, страны, рейтинг, права, IDFA"
 python3 "$SCRIPT_DIR/first_release/setup_app.py" --listing "$LISTING_PATH"
+
+# 5. Подписки. Идут последними: доступность продукта берётся из стран
+#    приложения, а их проставляет предыдущий шаг.
+log_step "Шаг 5/5: подписки"
+SUBSCRIPTION_SHOTS=""
+if [[ -n "${SUBSCRIPTION_SCREENSHOTS_ZIP_URL:-}" ]]; then
+  SUBSCRIPTION_SHOTS="$(python3 "$SCRIPT_DIR/first_release/prepare_subscription_shots.py" \
+    "$SUBSCRIPTION_SCREENSHOTS_ZIP_URL" >&2 && echo "$PREPARED_DIR/subscription-screenshots")"
+fi
+if [[ -n "$SUBSCRIPTION_SHOTS" ]]; then
+  python3 "$SCRIPT_DIR/first_release/setup_subscriptions.py" \
+    --listing "$LISTING_PATH" --screenshots "$SUBSCRIPTION_SHOTS"
+else
+  python3 "$SCRIPT_DIR/first_release/setup_subscriptions.py" --listing "$LISTING_PATH"
+fi
 
 log_info "Первая заливка завершена. Карточка заполнена, на ревью не отправлена."
