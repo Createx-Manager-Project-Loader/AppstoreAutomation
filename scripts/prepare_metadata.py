@@ -617,14 +617,35 @@ def xlsx_sheet_paths(zip_file):
     return paths
 
 
+INVISIBLE_CHARS = dict.fromkeys(map(ord, "​‌‍⁠﻿"))
+
+
+def sheet_key(name):
+    """Имя вкладки для сравнения: без регистра, лишних пробелов и невидимых символов.
+
+    Google Sheets не показывает пробел в конце имени вкладки, неразрывный
+    пробел и символы нулевой ширины. На глаз такая вкладка называется
+    «Description», а точное сравнение её не находит — и лист молча
+    пропускается.
+    """
+    cleaned = name.translate(INVISIBLE_CHARS).replace(" ", " ")
+    return " ".join(cleaned.split()).lower()
+
+
 def resolve_sheet_name(sheet_paths, preferred_names):
-    """Match workbook tab names case-insensitively (ASO == Aso == aso)."""
-    by_lower = {name.lower(): name for name in sheet_paths}
+    """Настоящее имя вкладки из списка допустимых (ASO == Aso == «aso »)."""
+    by_key = {sheet_key(name): name for name in sheet_paths}
     for preferred in preferred_names:
-        actual = by_lower.get(preferred.lower())
+        actual = by_key.get(sheet_key(preferred))
         if actual:
             return actual
     return None
+
+
+def xlsx_sheet_names(path):
+    """Имена всех вкладок книги как есть — для сообщения, когда нужная не нашлась."""
+    with zipfile.ZipFile(path) as zip_file:
+        return list(xlsx_sheet_paths(zip_file))
 
 
 def read_xlsx_sheet(path, preferred_names):
@@ -759,18 +780,24 @@ def read_aso_rows():
     return read_manager_aso_rows(rows, str(xlsx_path))
 
 
+# Принимаем частую опечатку «Descriprion» и русские варианты — поиск
+# регистронезависимый, лишь бы лист с описаниями нашёлся.
+DESCRIPTION_SHEET_NAMES = ["Description", "Descriptions", "Descriprion", "Описание", "Описания"]
+
+
 def read_description_rows():
     if not has_aso_source():
         return {}
 
     xlsx_path = aso_xlsx_path()
-    # Принимаем частую опечатку «Descriprion» и русские варианты — поиск
-    # регистронезависимый, лишь бы лист с описаниями нашёлся.
-    rows = read_xlsx_sheet(
-        xlsx_path,
-        ["Description", "Descriptions", "Descriprion", "Описание", "Описания"],
-    )
+    rows = read_xlsx_sheet(xlsx_path, DESCRIPTION_SHEET_NAMES)
     if not rows:
+        # Без списка вкладок отсюда не понять, чего не хватило: листа нет
+        # совсем или он назван иначе. Печатаем, что есть на самом деле.
+        print(
+            "No Description sheet found in ASO workbook. Tabs present: "
+            + ", ".join(repr(name) for name in xlsx_sheet_names(xlsx_path))
+        )
         return {}
     return read_manager_description_rows(rows, str(xlsx_path))
 

@@ -290,6 +290,7 @@ def normalize_column_format(service, spreadsheet_id: str, sheet_name: str) -> No
 
 def main() -> int:
     from prepare_metadata import (
+        DESCRIPTION_SHEET_NAMES,
         aso_xlsx_path,
         get_google_sheet_url,
         locales_for_name,
@@ -333,12 +334,13 @@ def main() -> int:
     # 2. Что уже есть в описаниях и в каких строках.
     # Настоящее имя вкладки нужно для адресов ячеек при записи.
     with zipfile.ZipFile(xlsx) as archive:
-        sheet_name = resolve_sheet_name(
-            xlsx_sheet_paths(archive),
-            ["Description", "Descriptions", "Descriprion", "Описание", "Описания"],
-        )
+        tabs = xlsx_sheet_paths(archive)
+        sheet_name = resolve_sheet_name(tabs, DESCRIPTION_SHEET_NAMES)
     if not sheet_name:
-        log("В таблице нет листа описаний — пропускаем")
+        # Список вкладок печатаем как есть, в кавычках: так в логе видно и
+        # опечатку, и пробел в конце имени, которых в Google Sheets не видно.
+        log("В таблице нет листа описаний — пропускаем. Вкладки в книге: "
+            + ", ".join(repr(name) for name in tabs))
         return 0
 
     description_rows = read_xlsx_sheet(xlsx, [sheet_name])
