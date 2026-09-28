@@ -28,6 +28,7 @@ ASC_KEY_PATH, как и во всех остальных скриптах реп
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -58,10 +59,17 @@ class Problem(Exception):
 
 
 class Step:
-    """Один шаг: применить, потом прочитать обратно и сверить."""
+    """Один шаг: применить, потом прочитать обратно и сверить.
 
-    def __init__(self, name: str, want: Any, apply, read) -> None:
+    `filled` отвечает на вопрос «в сторе это уже выставлено?». Если да, шаг
+    пропускается: заполненное руками не затирается значением из файла. Вернуть
+    нужно описание текущего значения — оно уходит в отчёт, чтобы пропуск был
+    виден, а не случился молча.
+    """
+
+    def __init__(self, name: str, want: Any, apply, read, filled=None) -> None:
         self.name, self.want, self.apply, self.read = name, want, apply, read
+        self.filled = filled
 
 
 class Setup:
@@ -114,7 +122,8 @@ class Setup:
                 self.skipped.append(f"app_information.content_rights: не знаю значения «{rights}»")
             else:
                 out.append(Step("права на контент", want,
-                                self.set_content_rights, self.get_content_rights))
+                                self.set_content_rights, self.get_content_rights,
+                                self.filled_content_rights))
 
         rating = dig(self.listing, "age_rating")
         answers = rating.get("answers") if isinstance(rating, dict) else None
@@ -131,11 +140,13 @@ class Setup:
             self.skipped.append(f"age_rating: статус {status} — рейтинг не уезжает догадкой")
         else:
             out.append(Step("возрастной рейтинг", answers,
-                            self.set_age_rating, self.get_age_rating))
+                            self.set_age_rating, self.get_age_rating,
+                            self.filled_age_rating))
 
         tier = self.field("pricing.tier", required=False)
         if tier:
-            out.append(Step("цена", str(tier).strip().lower(), self.set_price, self.get_price))
+            out.append(Step("цена", str(tier).strip().lower(),
+                            self.set_price, self.get_price, self.filled_price))
 
         countries = self.field("pricing.countries", required=False)
         if countries:
@@ -144,13 +155,14 @@ class Setup:
             # множеством кодов было бы сравнением разного с разным.
             out.append(Step("страны", set(self.wanted_territories(countries)),
                             lambda want: self.set_countries(countries),
-                            self.get_countries))
+                            self.get_countries, self.filled_countries))
 
         idfa = self.field("declarations.uses_idfa", required=False)
         if idfa is not None:
             try:
                 want = self.as_bool(idfa, "declarations.uses_idfa")
-                out.append(Step("рекламный идентификатор", want, self.set_idfa, self.get_idfa))
+                out.append(Step("рекламный идентификатор", want, self.set_idfa,
+                                self.get_idfa, self.filled_idfa))
             except Problem as error:
                 self.skipped.append(str(error))
 
@@ -185,6 +197,30 @@ class Setup:
         self.client.request("PATCH", f"/apps/{self.app_id}", json={"data": {
             "type": "apps", "id": self.app_id,
             "attributes": {"contentRightsDeclaration": want}}})
+
+    def filled_content_rights(self):
+        return self.get_content_rights()
+
+    def filled_age_rating(self):
+        """Анкета считается заполненной, если хоть на один вопрос есть ответ.
+
+        У только что заведённого приложения декларация уже существует, но все
+        ответы в ней пустые — поэтому смотрим на содержимое, а не на наличие.
+        """
+        answers = self.get_age_rating()
+        given = {k: v for k, v in (answers or {}).items() if v is not None}
+        return f"{len(given)} ответов" if given else None
+
+    def filled_price(self):
+        return self.get_price() or None
+
+    def filled_countries(self):
+        countries = self.get_countries()
+        return f"{len(countries)} стран" if countries else None
+
+    def filled_idfa(self):
+        value = self.get_idfa()
+        return None if value is None else ("да" if value else "нет")
 
     def get_content_rights(self):
         payload = self.client.request(
@@ -442,12 +478,24 @@ def main() -> int:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
 
-    failures = []
+    # Заполненное в App Store Connect не трогаем: ПМ мог выставить это руками,
+    # и файл листинга не должен молча стирать его работу. Галочка перезаписи
+    # в консоли снимает правило целиком.
+    overwrite = os.environ.get("FIRST_RELEASE_OVERWRITE", "").strip().lower() in (
+        "yes", "true", "1")
+
+    failures, left = [], []
     for step in steps:
         try:
             if args.dry_run:
                 print(f"  — {step.name}: поставил бы {short(step.want)}")
                 continue
+            if not (args.verify or overwrite) and step.filled:
+                current = step.filled()
+                if current:
+                    print(f"  ={step.name}: уже выставлено ({current}) — оставляем как есть")
+                    left.append(f"{step.name}: {current}")
+                    continue
             if not args.verify:
                 step.apply(step.want)
             got, ok = read_back(step, attempts=1 if args.verify else 4)
@@ -464,6 +512,13 @@ def main() -> int:
             print(f"  НЕТ {step.name}: {error}", file=sys.stderr)
             failures.append(step.name)
 
+    if left:
+        print(f"\nОставлено как было: {len(left)} — в сторе уже заполнено, "
+              "из файла не перезаписывали:")
+        for line in left:
+            print(f"  - {line}")
+        print("Чтобы залить поверх, поставьте галочку перезаписи в консоли.")
+
     if failures:
         print(f"ERROR: не встало: {', '.join(failures)}", file=sys.stderr)
         return 1
@@ -473,7 +528,8 @@ def main() -> int:
             print(f"  - {line}")
 
     if not args.dry_run:
-        print(f"Проверено обратным чтением: {len(steps)} из {len(steps)}.")
+        written = len(steps) - len(left)
+        print(f"Проверено обратным чтением: {written} из {written}.")
     return 0
 
 

@@ -37,16 +37,28 @@ log_step "Шаг 1/6: раскладка метаданных из листин�
 rm -rf "$FIRST_RELEASE_DIR"
 python3 "$SCRIPT_DIR/first_release/build_metadata.py" "$LISTING_PATH" --out "$FIRST_RELEASE_DIR"
 
-# 2. Снимок карточки и проверка, что её не затрут. Снимок снимается всегда,
-#    даже когда карточка пустая: способ вернуть назад выдаётся ДО изменения.
-log_step "Шаг 2/6: снимок карточки"
+# 2. Снимок карточки, основной язык и защита заполненных полей. Снимок
+#    снимается всегда, даже когда карточка пустая: способ вернуть назад
+#    выдаётся ДО изменения. Здесь же раскладка переезжает в тот язык, который
+#    у приложения основной, и из неё уносится всё, что в сторе уже заполнено.
+log_step "Шаг 2/6: снимок карточки и сверка с тем, что уже в сторе"
 SNAPSHOT_PATH="$PREPARED_DIR/first-release-snapshot.json"
-python3 "$SCRIPT_DIR/first_release/guard.py" --out "$SNAPSHOT_PATH"
+PLAN_PATH="$PREPARED_DIR/first-release-plan.json"
+python3 "$SCRIPT_DIR/first_release/guard.py" \
+  --out "$SNAPSHOT_PATH" \
+  --metadata "$FIRST_RELEASE_DIR/metadata" \
+  --plan "$PLAN_PATH"
 
 # 3. Скриншоты — тем же путём, что и в обычных прогонах: скачать по ссылке,
 #    обязательно снять метаданные, разложить по локалям.
+# Скриншоты в сторе уже есть — второй раз не заливаем: deliver загружен с
+# overwrite_screenshots, и повтор стёр бы загруженные руками кадры.
+SKIP_SHOTS="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['skip_screenshots'])" "$PLAN_PATH")"
+
 SCREENSHOTS_PATH=""
-if [[ -n "${SCREENSHOTS_ZIP_URL:-}" ]]; then
+if [[ "$SKIP_SHOTS" == "True" ]]; then
+  log_step "Шаг 3/6: скриншоты пропущены (в сторе уже загружены)"
+elif [[ -n "${SCREENSHOTS_ZIP_URL:-}" ]]; then
   log_step "Шаг 3/6: скриншоты"
   python3 - <<'PY'
 import sys, os
@@ -61,6 +73,10 @@ else
 fi
 
 # 4. deliver: тексты карточки, категории, контакты ревью, скриншоты.
+SKIP_DELIVER="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['skip_deliver'])" "$PLAN_PATH")"
+if [[ "$SKIP_DELIVER" == "True" ]]; then
+  log_step "Шаг 4/6: заливка карточки пропущена (всё из файла в сторе уже есть)"
+else
 log_step "Шаг 4/6: заливка карточки через deliver"
 export FIRST_RELEASE_METADATA_PATH="$FIRST_RELEASE_DIR/metadata"
 if [[ -n "$SCREENSHOTS_PATH" ]]; then
@@ -75,6 +91,7 @@ PY
 export FIRST_RELEASE_RELEASE_TYPE
 log_info "Способ релиза: ${FIRST_RELEASE_RELEASE_TYPE:-manual}"
 run_fastlane first_release
+fi
 
 # 5. То, чего в deliver нет. Каждое поле после записи читается обратно.
 log_step "Шаг 5/6: цена, страны, рейтинг, права, IDFA"
