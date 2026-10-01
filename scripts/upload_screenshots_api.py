@@ -535,9 +535,24 @@ def find_or_create_localization(client: AppStoreConnectClient, version_id: str, 
     )["data"]
 
 
-def list_screenshot_sets(client: AppStoreConnectClient, localization_id: str) -> list[dict[str, Any]]:
+# Наборы скриншотов висят на локализации, но локализация бывает трёх родов:
+# у версии приложения, у варианта A/B-теста и у кастомной страницы. Сами кадры
+# заливаются одинаково, поэтому родителя передаём параметром, а не пишем второй
+# загрузчик. Умолчание — версия приложения: так зовут обычные прогоны.
+VERSION_PARENT = ("appStoreVersionLocalizations", "appStoreVersionLocalization")
+EXPERIMENT_PARENT = (
+    "appStoreVersionExperimentTreatmentLocalizations",
+    "appStoreVersionExperimentTreatmentLocalization",
+)
+
+
+def list_screenshot_sets(
+    client: AppStoreConnectClient,
+    localization_id: str,
+    parent: tuple[str, str] = VERSION_PARENT,
+) -> list[dict[str, Any]]:
     return client.get_all(
-        f"/appStoreVersionLocalizations/{localization_id}/appScreenshotSets"
+        f"/{parent[0]}/{localization_id}/appScreenshotSets"
         "?fields[appScreenshotSets]=screenshotDisplayType"
     )
 
@@ -547,8 +562,9 @@ def replace_screenshot_set(
     localization_id: str,
     display_type: str,
     dry_run: bool,
+    parent: tuple[str, str] = VERSION_PARENT,
 ) -> str:
-    existing_sets = list_screenshot_sets(client, localization_id)
+    existing_sets = list_screenshot_sets(client, localization_id, parent)
     for screenshot_set in existing_sets:
         if screenshot_set.get("attributes", {}).get("screenshotDisplayType") != display_type:
             continue
@@ -572,8 +588,8 @@ def replace_screenshot_set(
                 "type": "appScreenshotSets",
                 "attributes": {"screenshotDisplayType": display_type},
                 "relationships": {
-                    "appStoreVersionLocalization": {
-                        "data": {"type": "appStoreVersionLocalizations", "id": localization_id},
+                    parent[1]: {
+                        "data": {"type": parent[0], "id": localization_id},
                     }
                 },
             }
