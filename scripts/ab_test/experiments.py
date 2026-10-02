@@ -168,6 +168,27 @@ def ensure_localization(client: AppStoreConnectClient, treatment_id: str,
     return known[locale]
 
 
+def edit_experiment(client: AppStoreConnectClient, experiment_id: str,
+                    name: str | None, traffic: int | None) -> None:
+    """Переименование и доля трафика. Apple разрешает их менять и на ходу."""
+    attributes: dict[str, Any] = {}
+    if name:
+        attributes["name"] = name
+    if traffic is not None:
+        attributes["trafficProportion"] = int(traffic)
+    if not attributes:
+        raise Problem("нечего менять: не задано ни имя, ни доля трафика")
+
+    client.request(
+        "PATCH",
+        f"https://api.appstoreconnect.apple.com/v2/appStoreVersionExperiments/{experiment_id}",
+        json={"data": {
+            "type": "appStoreVersionExperiments",
+            "id": experiment_id,
+            "attributes": attributes,
+        }})
+
+
 def set_started(client: AppStoreConnectClient, experiment_id: str,
                 started: bool) -> None:
     client.request(

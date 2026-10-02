@@ -53,9 +53,12 @@ def apply_treatment(client: AppStoreConnectClient, version_id: str,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["stop", "start", "delete", "apply"])
+    parser.add_argument("action",
+                        choices=["stop", "start", "delete", "apply", "edit"])
     parser.add_argument("--experiment", required=True, help="идентификатор теста")
     parser.add_argument("--treatment", help="идентификатор варианта, для apply")
+    parser.add_argument("--name", help="новое имя теста, для edit")
+    parser.add_argument("--traffic", type=int, help="доля трафика, для edit")
     args = parser.parse_args()
 
     client = AppStoreConnectClient(
@@ -81,7 +84,11 @@ def main() -> int:
     print(f"Тест «{found['name']}», состояние {found['state']}")
 
     try:
-        if args.action in ("stop", "start"):
+        if args.action == "edit":
+            exp.edit_experiment(client, found["id"], args.name, args.traffic)
+            print("Изменено.")
+
+        elif args.action in ("stop", "start"):
             exp.set_started(client, found["id"], args.action == "start")
             print("Остановлен." if args.action == "stop" else "Запущен.")
 
