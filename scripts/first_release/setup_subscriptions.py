@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -59,6 +60,23 @@ PERIODS = {
 # Сколько цен ставим за раз. Больше упирается в 429 от ASC, меньше — долго:
 # 175 стран по одной уходят в три минуты.
 PRICE_WORKERS = 6
+
+
+def price_of(text) -> float:
+    """Цена числом. Файл листинга пишет её по-разному, Apple ждёт число.
+
+    Встречались «6.99 USD», «$6.99», «6,99» — валюту в листинге указывать
+    незачем (цена задаётся ценовой точкой базовой территории), но раз она там
+    бывает, разбирать её здесь дешевле, чем терять продукт целиком: без цены
+    продукт пропускается и пейволл уезжает в стор пустым.
+    """
+    cleaned = re.sub(r"[^\d.,-]", "", str(text)).replace(",", ".")
+    if not cleaned:
+        raise Problem(f"цена «{text}» не похожа на число")
+    try:
+        return float(cleaned)
+    except ValueError as error:
+        raise Problem(f"цена «{text}» не похожа на число") from error
 
 
 def period_of(text: str) -> str:
@@ -352,7 +370,7 @@ def products_from(listing: dict) -> tuple[list[dict], list[str]]:
             continue
 
         try:
-            price = float(str(values["price"]).lstrip("$").replace(",", "."))
+            price = price_of(values["price"])
             period = period_of(duration)
         except (ValueError, Problem) as error:
             skipped.append(f"продукт {name}: {error}")
