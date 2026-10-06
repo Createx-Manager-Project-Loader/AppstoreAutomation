@@ -461,6 +461,11 @@ def ensure_editable_app_store_version(client: AppStoreConnectClient, app_id: str
     except AppStoreConnectError as error:
         if not auto_create or "No editable iOS app store version found" not in str(error):
             raise
+        # Состояния версий Apple называет только здесь, в тексте этой ошибки.
+        # Дальше мы её гасим и идём создавать версию, и если Apple откажет,
+        # в логе остаётся сухое «cannot create a new version in the current
+        # state» — без подсказки, какая версия и чем занята. Печатаем заранее.
+        print(str(error))
 
     existing_versions = list_ios_app_store_versions(client, app_id)
     next_version_string = choose_next_version_string(existing_versions)
