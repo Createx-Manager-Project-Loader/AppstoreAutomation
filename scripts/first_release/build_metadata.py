@@ -116,6 +116,21 @@ def dig(root, path):
     return node
 
 
+# Заготовка вида [PRIVACY_POLICY_URL]: кит подставляет такие, когда страницы
+# ещё не захостили. Подчёркивание обязательно — иначе под правило попали бы
+# обычные пометки в тексте вроде «[NEW]».
+PLACEHOLDER = re.compile(r"\[[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\]")
+
+
+def unresolved(text):
+    """Незакрытые заготовки в тексте, по порядку и без повторов."""
+    seen = []
+    for found in PLACEHOLDER.findall(text):
+        if found not in seen:
+            seen.append(found)
+    return seen
+
+
 def value_of(root, path):
     """Значение поля, если оно подтверждено. Иначе объясняет, почему нет."""
     node = dig(root, path)
@@ -129,11 +144,25 @@ def value_of(root, path):
             return None, f"статус {status}"
         if raw is None or str(raw).strip() == "":
             return None, "пустое значение"
-        return str(raw), None
+        return _checked(str(raw))
 
     if str(node).strip() == "":
         return None, "пустое значение"
-    return str(node), None
+    return _checked(str(node))
+
+
+def _checked(text):
+    """Подтверждённое значение, но с заготовкой внутри, заливать нельзя.
+
+    Живой случай (GenoMap): страницы политик ещё не захостили, кит подставил
+    [PRIVACY_POLICY_URL] и [TERMS_OF_USE_URL] прямо в текст описания, а само
+    описание пометил confirmed. Без этой проверки квадратные скобки уехали бы
+    на страницу приложения — их увидели бы и ревьюер, и пользователи.
+    """
+    holes = unresolved(text)
+    if holes:
+        return None, f"в тексте осталась заготовка {', '.join(holes)}"
+    return text, None
 
 
 def valid_phone(text: str) -> bool:
