@@ -20,6 +20,7 @@
 
 import os
 import time
+import unicodedata
 import zipfile
 from pathlib import Path
 
@@ -57,9 +58,36 @@ def _max_bytes() -> int:
     return int(raw) if raw.isdigit() else DEFAULT_MAX_BYTES
 
 
+def canonical_name(item: zipfile.ZipInfo) -> str:
+    """Имя записи архива в одном виде, как бы его ни записал архиватор.
+
+    Архивы от ПМов приходят двух видов. В одних выставлен флаг UTF-8 (бит
+    0x0800), и zipfile отдаёт имя как есть. В других флага нет, а байты имени
+    всё равно UTF-8 — так жмут некоторые архиваторы; zipfile по стандарту
+    читает такое имя как cp437 и отдаёт мохабайт («Часть» → «╨º╨░╤ü╤é╤î»).
+
+    Сервис очистки кириллицу распознаёт и возвращает архив уже с флагом, то
+    есть с правильными именами. Дословное сравнение «до/после» на этом ломалось
+    на ровном месте: файлы те же, имена с виду разные — прогон падал с
+    «service changed the archive structure», хотя не потерялось ничего.
+
+    Поэтому имя возвращается к байтам и декодируется одинаково для обеих
+    сторон. NFC — на случай macOS: он пишет разложенные формы, и «й» из двух
+    кодовых точек иначе не равно «й» из одной.
+    """
+    name = item.orig_filename
+    raw = name.encode("utf-8") if item.flag_bits & 0x800 else name.encode("cp437", "replace")
+    try:
+        name = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    return unicodedata.normalize("NFC", name.replace("\\", "/"))
+
+
 def zip_paths(path: Path) -> list:
     with zipfile.ZipFile(path) as archive:
-        return sorted(item.filename for item in archive.infolist() if not item.is_dir())
+        return sorted(canonical_name(item) for item in archive.infolist()
+                      if not item.is_dir())
 
 
 def strip_metadata(path: Path, label: str = "archive") -> Path:
