@@ -95,7 +95,12 @@ fi
 
 # 5. То, чего в deliver нет. Каждое поле после записи читается обратно.
 log_step "Шаг 5/6: цена, страны, рейтинг, права, IDFA"
-python3 "$SCRIPT_DIR/first_release/setup_app.py" --listing "$LISTING_PATH"
+# Неудача одного поля здесь не должна отменять подписки. Без телефона не
+# встанет информация для ревью — это ожидаемо, — но с set -e скрипт на этом
+# обрывался, и шаг 6 не запускался вовсе: подписки не заводились ни у кого,
+# у кого не хватало хотя бы одного поля. Код запоминаем, падаем в конце.
+STEP5_STATUS=0
+python3 "$SCRIPT_DIR/first_release/setup_app.py" --listing "$LISTING_PATH" || STEP5_STATUS=$?
 
 # 6. Подписки. Идут последними: доступность продукта берётся из стран
 #    приложения, а их проставляет предыдущий шаг.
@@ -110,6 +115,12 @@ if [[ -n "$SUBSCRIPTION_SHOTS" ]]; then
     --listing "$LISTING_PATH" --screenshots "$SUBSCRIPTION_SHOTS"
 else
   python3 "$SCRIPT_DIR/first_release/setup_subscriptions.py" --listing "$LISTING_PATH"
+fi
+
+if [[ "$STEP5_STATUS" -ne 0 ]]; then
+  log_warn "Шаг 5 встал не целиком — подробности выше, в строках «НЕТ»."
+  log_warn "Подписки при этом обработаны: шаг 6 выполнен."
+  exit "$STEP5_STATUS"
 fi
 
 log_info "Первая заливка завершена. Карточка заполнена, на ревью не отправлена."
