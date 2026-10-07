@@ -77,6 +77,13 @@ mixed = archive(["de-DE/1.png", "stray.png"])
 placed = upload.spread(mixed, "смешанный", Path(tempfile.mkdtemp()) / "mixed", "en-US")
 check("при папке языка корень не трогаем", sorted(placed), ["de-DE"])
 
+# папки названы словами, как их пишет команда (Kegel Women 2, 7 октября):
+# «English» — это четыре английские локали, «Portuguese BR» — pt-BR
+words = archive(["English/1.png", "Portuguese BR/1.png", "Chinese simplified/1.png"])
+placed = upload.spread(words, "слова", Path(tempfile.mkdtemp()) / "words")
+check("папки-слова поняты", sorted(placed),
+      ["en-AU", "en-CA", "en-GB", "en-US", "pt-BR", "zh-Hans"])
+
 # en-UK — так подписан язык в интерфейсе, у Apple это en-GB
 uk = archive(["en-UK/1.png", "EN-us/2.png", "xx-YY/3.png"])
 placed = upload.spread(uk, "uk", Path(tempfile.mkdtemp()) / "uk")

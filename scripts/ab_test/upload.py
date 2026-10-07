@@ -52,7 +52,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "lib"))
 import experiments as exp  # noqa: E402
 from metaclean import strip_metadata  # noqa: E402
 from paths import PREPARED_DIR  # noqa: E402
-from prepare_metadata import download_google_drive_file  # noqa: E402
+from prepare_metadata import download_google_drive_file, locales_for_folder  # noqa: E402
 from store_locales import store_locale  # noqa: E402
 from upload_screenshots_api import (  # noqa: E402
     EXPERIMENT_PARENT,
@@ -78,9 +78,10 @@ def spread(archive_path: Path, label: str, target: Path,
     Возвращает локаль → список файлов. Папка локали берётся из пути внутри
     архива: сервис очистки структуру путей сохраняет, проверено.
 
-    Папка сверяется со списком App Store (lib/store_locales.py): `en-UK`
-    становится `en-GB`, а похожее на локаль, но несуществующее, отсеивается
-    здесь, а не отказом Apple посреди заливки.
+    Имя папки разбирается так же, как в обычной заливке: коды локалей,
+    привычные написания (`en-UK` → `en-GB`) и названия языков, как их пишет
+    команда («English», «Portuguese BR»). Несуществующее отсеивается здесь,
+    а не отказом Apple посреди заливки.
 
     **Кадры в корне архива** уходят в `default_locale` — основной язык
     приложения, — если в архиве нет ни одной папки языка. Решение владельца:
@@ -104,18 +105,25 @@ def spread(archive_path: Path, label: str, target: Path,
                 foreign.append(member.filename)
                 continue
 
-            locale = next((store_locale(part) for part in name.parts[:-1]
-                           if store_locale(part)), None)
-            if locale is None:
+            # Тот же разбор, что у обычной заливки: понимает и коды (en-US,
+            # en-UK → en-GB), и названия языков, как их пишет команда
+            # («English», «Portuguese BR», «Chinese simplified»). Одна папка
+            # может дать несколько локалей: «English» — это en-US, en-GB,
+            # en-AU и en-CA. Раньше у A/B был свой шаблон, знавший только
+            # коды, и архив Kegel Women 2 с папками-словами давал ноль.
+            locales = next((found for part in name.parts[:-1]
+                            if (found := locales_for_folder(part))), None)
+            if not locales:
                 foreign.append(member.filename)
                 continue
 
-            out_dir = target / locale
-            out_dir.mkdir(exist_ok=True)
-            out_path = out_dir / name.name
-            with archive.open(member) as source:
-                out_path.write_bytes(source.read())
-            by_locale.setdefault(locale, []).append(out_path)
+            data = archive.read(member)
+            for locale in locales:
+                out_dir = target / locale
+                out_dir.mkdir(exist_ok=True)
+                out_path = out_dir / name.name
+                out_path.write_bytes(data)
+                by_locale.setdefault(locale, []).append(out_path)
 
     # Ни одной папки языка, а кадры лежат в корне — в основной язык.
     if not by_locale and default_locale:
