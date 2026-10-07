@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import re
 import shutil
+import os
 import sys
 import urllib.parse
 import urllib.error
@@ -1215,7 +1216,36 @@ def prepare_metadata_files(aso_rows, description_rows, extra_locales=None):
     return locales, url_files
 
 
+def default_screenshot_locale(zip_file):
+    """Локаль для кадров, лежащих в корне архива, — или None.
+
+    Кадры без папки языка раньше отсеивались целиком: «01 · Resemblance.jpg»
+    в корне архива давало ноль скриншотов и предупреждение, где имена файлов
+    называли «папками». Family Tree 15, 7 октября.
+
+    Решение владельца — заливать, что есть. Поэтому если в архиве нет НИ
+    ОДНОЙ папки языка, а кадры лежат прямо в корне, они уходят в основной
+    язык приложения. Основной язык знает только первая заливка (читает его
+    из App Store Connect) и передаёт через SCREENSHOTS_DEFAULT_LOCALE.
+    Если в архиве есть хоть одна папка языка, корень не трогаем: тогда это
+    скорее забытый лишний файл, чем набор кадров.
+    """
+    fallback = (os.environ.get("SCREENSHOTS_DEFAULT_LOCALE") or "").strip()
+    if not fallback:
+        return None
+    for member in zip_file.infolist():
+        if member.is_dir():
+            continue
+        parts = [part for part in Path(member.filename).parts if part not in ("", ".")]
+        if parts and parts[0] != "__MACOSX" and len(parts) > 1 and any(
+                locales_for_folder(part) for part in parts[:-1]):
+            return None
+    canonical = locales_for_folder(fallback)
+    return canonical[0] if canonical else None
+
+
 def safe_zip_members(zip_file):
+    root_locale = default_screenshot_locale(zip_file)
     for member in zip_file.infolist():
         path = Path(member.filename)
         parts = [part for part in path.parts if part not in ("", ".")]
@@ -1228,6 +1258,9 @@ def safe_zip_members(zip_file):
 
         locale_index = next((index for index, part in enumerate(parts) if locales_for_folder(part)), None)
         if locale_index is None:
+            if root_locale and len(parts) == 1 and \
+                    Path(parts[0]).suffix.lower() in IMAGE_EXTENSIONS:
+                yield member, root_locale, Path(parts[0])
             continue
 
         locale_name = parts[locale_index]
@@ -1256,6 +1289,9 @@ def unmatched_screenshot_folders(zip_file):
         if Path(parts[-1]).suffix.lower() not in IMAGE_EXTENSIONS:
             continue
         if any(locales_for_folder(part) for part in parts):
+            continue
+        # Кадры в корне ушли в основной язык — это не «непонятая папка».
+        if len(parts) == 1 and default_screenshot_locale(zip_file):
             continue
         if parts[0] not in unmatched:
             unmatched.append(parts[0])

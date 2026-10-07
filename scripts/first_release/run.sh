@@ -60,6 +60,10 @@ if [[ "$SKIP_SHOTS" == "True" ]]; then
   log_step "Шаг 3/6: скриншоты пропущены (в сторе уже загружены)"
 elif [[ -n "${SCREENSHOTS_ZIP_URL:-}" ]]; then
   log_step "Шаг 3/6: скриншоты"
+  # Основной язык приложения: в него уходят кадры, лежащие в корне архива
+  # без папки языка (см. default_screenshot_locale в prepare_metadata.py).
+  SCREENSHOTS_DEFAULT_LOCALE="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('locale') or '')" "$PLAN_PATH")"
+  export SCREENSHOTS_DEFAULT_LOCALE
   python3 - <<'PY'
 import sys, os
 sys.path.insert(0, os.path.join(os.environ["SCRIPT_DIR"]))

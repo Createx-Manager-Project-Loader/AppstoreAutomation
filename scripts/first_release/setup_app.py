@@ -448,11 +448,15 @@ class Setup:
         if not payload or not payload.get("data"):
             return {}
         attributes = payload["data"]["attributes"]
+        # demoAccountRequired сверяем всегда: False — это ответ, а не пустота.
+        # Раньше фильтр «if value» выбрасывал его, и сверка писала «совпало 5
+        # из 6», хотя записалось всё. Family Tree 15, 7 октября.
+        wanted = set(self.REVIEW_ATTRS.values()) | {"demoAccountRequired"}
         return {key: value for key, value in attributes.items()
-                if key in self.REVIEW_ATTRS.values() and value}
+                if key in wanted and (value or key == "demoAccountRequired")}
 
     def filled_review(self):
-        given = self.get_review()
+        given = {k: v for k, v in self.get_review().items() if k != "demoAccountRequired"}
         return f"{len(given)} полей" if given else None
 
     def maybe(self, path: str):
@@ -636,7 +640,8 @@ def main() -> int:
             if isinstance(step.want, dict):
                 matched = sum(1 for k, v in step.want.items()
                               if isinstance(got, dict) and str(got.get(k)).lower() == str(v).lower())
-                print(f"  {mark} {step.name}: совпало {matched} из {len(step.want)} ответов анкеты")
+                unit = "ответов анкеты" if step.name == "возрастной рейтинг" else "полей"
+                print(f"  {mark} {step.name}: совпало {matched} из {len(step.want)} {unit}")
             else:
                 print(f"  {mark} {step.name}: хотели {short(step.want)}, в сторе {short(got)}")
             if not ok:

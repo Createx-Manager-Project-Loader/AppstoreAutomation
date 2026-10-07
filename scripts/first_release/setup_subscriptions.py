@@ -99,6 +99,7 @@ class Subscriptions:
         self.listing = listing
         self.locale = locale
         self.shots = shots
+        self.gaps: dict[str, dict] = {}
 
     def maybe(self, path: str):
         """GET, который отвечает None вместо исключения на 404.
@@ -318,6 +319,12 @@ class Subscriptions:
         shot = self.screenshot(sub_id, product["product_id"])
         print(f"    страны: {len(codes)}, цены: {placed}, кадр для ревью: "
               f"{'есть' if shot else 'НЕТ'}")
+        # Запоминаем, чего не хватило: если продукт застрянет в
+        # MISSING_METADATA только из-за кадра, это не сбой, а пробел в данных.
+        self.gaps[sub_id] = {
+            "prices_short": placed < len(codes),
+            "no_screenshot": not shot,
+        }
         return sub_id
 
     def state(self, sub_id: str) -> str:
@@ -429,7 +436,7 @@ def main() -> int:
         print("Заводить нечего — ни один продукт не закрыт полностью.")
         return 0
 
-    failures = []
+    failures, warnings = [], []
     try:
         group_id = setup.group(group_name)
         setup.group_localization(group_id, group_name)
@@ -452,10 +459,25 @@ def main() -> int:
             got, ok = read_back(step, attempts=1 if args.verify else 4)
             print(f"    состояние: {got}")
             if not ok:
-                failures.append(f"{product['product_id']} → {got}")
+                gap = setup.gaps.get(sub_id, {})
+                # Решение владельца: заливаем, что есть, а пробел в данных —
+                # предупреждение, а не красный прогон. Продукт заведён целиком,
+                # кроме кадра для ревью, а кадр не передан вовсе: дозаливается
+                # руками или повторным прогоном со ссылкой на архив.
+                if (got == "MISSING_METADATA" and gap.get("no_screenshot")
+                        and not gap.get("prices_short") and setup.shots is None):
+                    warnings.append(product["product_id"])
+                else:
+                    failures.append(f"{product['product_id']} → {got}")
     except (Problem, AppStoreConnectError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
+
+    if warnings:
+        print("WARNING: не залилось (некритично): кадр для ревью подписки — "
+              + ", ".join(warnings)
+              + ". Ссылку на архив с кадрами в запуске не передали; продукт заведён, "
+                "но на ревью без кадра не уйдёт")
 
     if failures:
         print("ERROR: продукты не готовы к отправке: " + "; ".join(failures), file=sys.stderr)
@@ -463,6 +485,10 @@ def main() -> int:
               "проставлена не на все страны.", file=sys.stderr)
         return 1
 
+    if warnings:
+        print(f"Подписки заведены: {len(products)}, из них без кадра для ревью: "
+              f"{len(warnings)}.")
+        return 0
     print(f"Подписки готовы: {len(products)} продуктов в состоянии READY_TO_SUBMIT.")
     return 0
 

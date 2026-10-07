@@ -48,6 +48,37 @@ def main():
     extra = sorted(produced - APPLE)
     ok &= check(f"ни одной локали мимо списка Apple (лишние: {extra or 'нет'})", not extra)
 
+    # Кадры в корне архива — в основной язык, но только если папок языка нет.
+    import tempfile
+    import zipfile as zf
+    work = Path(tempfile.mkdtemp())
+
+    def archive(name, files):
+        path = work / name
+        with zf.ZipFile(path, "w") as out:
+            for item in files:
+                out.writestr(item, b"x")
+        return zf.ZipFile(path)
+
+    def placed(archive_file):
+        return sorted((locale, str(rel)) for _, locale, rel in pm.safe_zip_members(archive_file))
+
+    root = archive("root.zip", ["01 · Resemblance.jpg", "02 · Creations.jpg",
+                                "__MACOSX/._01 · Resemblance.jpg", "notes.txt"])
+    os.environ.pop("SCREENSHOTS_DEFAULT_LOCALE", None)
+    ok &= check("без основного языка корень не трогаем", placed(root) == [])
+
+    os.environ["SCREENSHOTS_DEFAULT_LOCALE"] = "en-us"
+    ok &= check("кадры из корня ушли в основной язык",
+                placed(root) == [("en-US", "01 · Resemblance.jpg"), ("en-US", "02 · Creations.jpg")])
+    ok &= check("корень больше не «непонятая папка»",
+                pm.unmatched_screenshot_folders(root) == [])
+
+    mixed = archive("mixed.zip", ["ru/1.jpg", "stray.jpg"])
+    ok &= check("есть папка языка — лишний файл в корне не трогаем",
+                placed(mixed) == [("ru", "1.jpg")])
+    os.environ.pop("SCREENSHOTS_DEFAULT_LOCALE", None)
+
     print("\nИтог:", "всё сходится" if ok else "есть расхождения")
     return 0 if ok else 1
 
