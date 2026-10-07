@@ -94,7 +94,77 @@ def strip_metadata(path: Path, label: str = "archive") -> Path:
     """Прогоняет файл через сервис очистки и подменяет его очищенным.
 
     Возвращает тот же путь: вызывающему коду не нужно знать, что файл менялся.
+
+    **Имена в сервис не отправляем.** Архив уходит туда под безопасными
+    латинскими именами (`0001.jpg`, `0002.jpg`…), а после очистки файлам
+    возвращаются исходные. Сервис портит нелатинские имена: «01 · Resemblance.jpg»
+    вернулся как «01 ú Resemblance.jpg» из архива с флагом UTF-8 и как
+    «01 Â· Resemblance.jpg» без флага — проверено живым вызовом 7 октября на
+    именах из Family Tree 15. Кириллицу при этом он пропускал верно, так что
+    поломка зависит от символа, и угадывать, какой следующий, бессмысленно.
+    Имена — наши: в них локали и порядок кадров, сервису они не нужны.
     """
+    if not zipfile.is_zipfile(path):
+        _clean_via_service(path, label)
+        print(f"Metadata stripped: {label} is now {_mb(path.stat().st_size)}.")
+        return path
+
+    safe = path.with_name(path.stem + ".safe.zip")
+    names = _write_safe_copy(path, safe)
+    try:
+        _clean_via_service(safe, label)
+        _restore_names(safe, path, names)
+    finally:
+        safe.unlink(missing_ok=True)
+
+    print(f"Metadata stripped: {label} is now {_mb(path.stat().st_size)}.")
+    return path
+
+
+def _write_safe_copy(source: Path, target: Path) -> dict:
+    """Копия архива с безопасными именами. Возвращает «безопасное → исходное».
+
+    Расширение сохраняем: по нему сервис решает, картинка это или нет.
+    Каталоги не переносим — путь целиком живёт в исходном имени файла.
+    """
+    names = {}
+    with zipfile.ZipFile(source) as src, \
+            zipfile.ZipFile(target, "w", zipfile.ZIP_STORED) as out:
+        index = 0
+        for item in src.infolist():
+            if item.is_dir():
+                continue
+            index += 1
+            # Исходное имя — в каноническом виде: у архива без флага UTF-8
+            # zipfile отдаёт мохабайт (cp437), и записать его обратно значило
+            # бы закрепить «╨º╨░…» вместо «Часть» уже в нашем же архиве.
+            original = canonical_name(item)
+            safe = f"{index:04d}{Path(original).suffix.lower()}"
+            names[safe] = original
+            out.writestr(safe, src.read(item))
+    return names
+
+
+def _restore_names(cleaned: Path, target: Path, names: dict) -> None:
+    """Собирает итоговый архив: содержимое — очищенное, имена — исходные."""
+    with zipfile.ZipFile(cleaned) as src:
+        got = {item.filename for item in src.infolist() if not item.is_dir()}
+        if got != set(names):
+            lost = sorted(set(names) - got)
+            _fail(
+                f"service changed the archive structure: {len(names)} entries in, "
+                f"{len(got)} out"
+                + (f"; missing: {', '.join(names[n] for n in lost[:5])}" if lost else "")
+            )
+        result = target.with_name(target.stem + ".restored.zip")
+        with zipfile.ZipFile(result, "w", zipfile.ZIP_STORED) as out:
+            for safe, original in names.items():
+                out.writestr(original, src.read(safe))
+    result.replace(target)
+
+
+def _clean_via_service(path: Path, label: str) -> Path:
+    """Один проход через сервис: загрузка, ожидание, скачивание, сверка состава."""
     token = (os.environ.get("METACLEAN_TOKEN") or "").strip()
     if not token:
         _fail(
@@ -192,5 +262,4 @@ def strip_metadata(path: Path, label: str = "archive") -> Path:
             )
 
     cleaned.replace(path)
-    print(f"Metadata stripped: {label} is now {_mb(path.stat().st_size)}.")
     return path

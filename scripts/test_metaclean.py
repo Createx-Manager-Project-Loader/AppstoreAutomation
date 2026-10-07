@@ -95,6 +95,40 @@ def main():
     write_flagged(nfc, ["ru/Кадр й.jpg"])
     ok &= check("NFD и NFC считаются одним именем", zip_paths(nfd) == zip_paths(nfc))
 
+    # Безопасные имена туда и обратно — без сервиса. Сервис портит
+    # нелатинские имена («·» → «ú»), поэтому имена ему не отдаём вовсе.
+    from metaclean import _restore_names, _write_safe_copy
+
+    source = work / "dots.zip"
+    write_unflagged(source, ["01 · Resemblance.jpg", "en-GB/Кадр 2.jpg"])
+    safe = work / "dots.safe.zip"
+    names = _write_safe_copy(source, safe)
+    with zipfile.ZipFile(safe) as archive:
+        sent = sorted(item.filename for item in archive.infolist())
+    ok &= check("в сервис уходят только латинские имена",
+                all(name.isascii() for name in sent))
+
+    target = work / "dots.restored.zip"
+    _restore_names(safe, target, names)
+    ok &= check("после очистки имена исходные и читаемые",
+                zip_paths(target) == ["01 · Resemblance.jpg", "en-GB/Кадр 2.jpg"])
+    with zipfile.ZipFile(target) as archive:
+        stored = sorted(item.filename for item in archive.infolist())
+    ok &= check("мохабайт архива без флага не закрепился",
+                stored == ["01 · Resemblance.jpg", "en-GB/Кадр 2.jpg"])
+
+    # Сервис потерял файл — проверка состава по-прежнему ловит.
+    broken = work / "broken.zip"
+    with zipfile.ZipFile(safe) as archive, zipfile.ZipFile(broken, "w") as out:
+        for item in archive.infolist()[1:]:
+            out.writestr(item.filename, archive.read(item))
+    try:
+        _restore_names(broken, work / "never.zip", names)
+        caught = False
+    except SystemExit:
+        caught = True
+    ok &= check("потеря файла сервисом останавливает прогон", caught)
+
     print("\nИтог:", "всё сходится" if ok else "есть расхождения")
     return 0 if ok else 1
 
