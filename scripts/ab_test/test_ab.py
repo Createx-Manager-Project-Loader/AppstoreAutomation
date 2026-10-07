@@ -58,13 +58,30 @@ check("порядок кадров сохранён",
 again = upload.spread(src, "test", out)
 check("повторный разбор не удваивает", len(again["en-US"]), 2)
 
-# архив без папок локалей — это ошибка с понятным текстом
+# архив без папок локалей и без основного языка — ошибка с понятным текстом
 flat = archive(["Screen 01.png", "Screen 02.png"])
 try:
     upload.spread(flat, "плоский", Path(tempfile.mkdtemp()) / "flat")
-    check("плоский архив отвергнут", "не упал", "Problem")
+    check("плоский архив без основного языка отвергнут", "не упал", "Problem")
 except exp.Problem as error:
-    check("плоский архив отвергнут", "папки" in str(error), True)
+    check("плоский архив без основного языка отвергнут", "папки" in str(error), True)
+
+# тот же архив, но основной язык известен — кадры уходят в него
+# (Kegel Women 2, 7 октября: тест завёлся, кадры лежали в корне)
+placed = upload.spread(flat, "плоский", Path(tempfile.mkdtemp()) / "flat2", "en-US")
+check("кадры из корня ушли в основной язык", sorted(placed), ["en-US"])
+check("в основном языке оба кадра", len(placed["en-US"]), 2)
+
+# есть папка языка — лишний файл в корне не трогаем
+mixed = archive(["de-DE/1.png", "stray.png"])
+placed = upload.spread(mixed, "смешанный", Path(tempfile.mkdtemp()) / "mixed", "en-US")
+check("при папке языка корень не трогаем", sorted(placed), ["de-DE"])
+
+# en-UK — так подписан язык в интерфейсе, у Apple это en-GB
+uk = archive(["en-UK/1.png", "EN-us/2.png", "xx-YY/3.png"])
+placed = upload.spread(uk, "uk", Path(tempfile.mkdtemp()) / "uk")
+check("en-UK → en-GB, регистр не важен, выдуманное отсеяно",
+      sorted(placed), ["en-GB", "en-US"])
 
 # ── запрет на удаление запущенного теста ───────────────────────────────────
 for state in ["ACCEPTED", "READY_FOR_REVIEW", "PREPARE_FOR_SUBMISSION"]:

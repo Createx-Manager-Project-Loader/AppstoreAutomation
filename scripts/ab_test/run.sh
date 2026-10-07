@@ -16,6 +16,13 @@ source "$SCRIPTS_DIR/load_account_config.sh"
 ACTION="${AB_ACTION:?не задано AB_ACTION}"
 log_step "A/B-тест: $ACTION"
 
+# Код действия запоминаем, а не обрываемся на нём: даже упавшее действие
+# могло успеть что-то создать в App Store Connect — тест, вариант. Если не
+# перечитать состояние, консоль о них не узнает, и повтор с тем же
+# названием упрётся в «тест уже есть, но он не наш». Kegel Women 2,
+# 7 октября: тест и вариант завелись, кадры не залились, состояние не
+# перечитано.
+STATUS=0
 case "$ACTION" in
   sync)
     python3 "$AB_SCRIPTS/sync.py" --out "$PREPARED_DIR/ab-state.json"
@@ -27,7 +34,7 @@ case "$ACTION" in
     python3 "$AB_SCRIPTS/upload.py" \
       --plan "${AB_PLAN:?не задан план}" \
       --out "$PREPARED_DIR/ab-result.json" \
-      "${OVERWRITE[@]}"
+      "${OVERWRITE[@]}" || STATUS=$?
     ;;
 
   edit|stop|start|delete|apply)
@@ -35,7 +42,7 @@ case "$ACTION" in
     [[ -n "${AB_TREATMENT:-}" ]] && ARGS+=(--treatment "$AB_TREATMENT")
     [[ -n "${AB_NAME:-}" ]] && ARGS+=(--name "$AB_NAME")
     [[ -n "${AB_TRAFFIC:-}" ]] && ARGS+=(--traffic "$AB_TRAFFIC")
-    python3 "$AB_SCRIPTS/manage.py" "$ACTION" "${ARGS[@]}"
+    python3 "$AB_SCRIPTS/manage.py" "$ACTION" "${ARGS[@]}" || STATUS=$?
     ;;
 
   *)
@@ -50,3 +57,5 @@ if [[ "$ACTION" != "sync" ]]; then
   log_step "Перечитываем состояние"
   python3 "$AB_SCRIPTS/sync.py" --out "$PREPARED_DIR/ab-state.json" || true
 fi
+
+exit "$STATUS"

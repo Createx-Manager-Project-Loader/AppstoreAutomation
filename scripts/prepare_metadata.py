@@ -568,20 +568,8 @@ EXTRA_STORE_LOCALES = (
 STORE_LOCALES = {locale.lower(): locale
                  for locale in list(CANONICAL_LOCALES.values()) + list(EXTRA_STORE_LOCALES)}
 
-# Как папки называют люди. `en-UK` — самая частая: Великобритания в App Store
-# это `en-GB`, а `UK` просится само. Живой случай: FamilyTree 20, 7 октября —
-# папку переименовали из `ENG` в `en-UK`, и прогон упал уже на заливке
-# карточки, утащив за собой метаданные, которые к скриншотам отношения не
-# имеют.
-FOLDER_ALIASES = {
-    "en-uk": "en-GB",
-    "en_gb": "en-GB",
-    "en_us": "en-US",
-    "uk-ua": "uk",
-    "zh-cn": "zh-Hans",
-    "zh-tw": "zh-Hant",
-    "pt-br": "pt-BR",
-}
+# Словарь привычных написаний — общий с A/B-тестами (lib/store_locales.py).
+from store_locales import FOLDER_ALIASES  # noqa: E402
 
 
 def locales_for_folder(name):

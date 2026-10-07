@@ -53,6 +53,7 @@ import experiments as exp  # noqa: E402
 from metaclean import strip_metadata  # noqa: E402
 from paths import PREPARED_DIR  # noqa: E402
 from prepare_metadata import download_google_drive_file  # noqa: E402
+from store_locales import store_locale  # noqa: E402
 from upload_screenshots_api import (  # noqa: E402
     EXPERIMENT_PARENT,
     AppStoreConnectClient,
@@ -68,14 +69,23 @@ from upload_screenshots_api import (  # noqa: E402
 )
 
 IMAGES = {".png", ".jpg", ".jpeg"}
-LOCALE_RE = re.compile(r"^[a-z]{2}(-[A-Za-z]{2,4})?$")
 
 
-def spread(archive_path: Path, label: str, target: Path) -> dict[str, list[Path]]:
+def spread(archive_path: Path, label: str, target: Path,
+           default_locale: str | None = None) -> dict[str, list[Path]]:
     """Раскладывает кадры из архива по локалям.
 
     Возвращает локаль → список файлов. Папка локали берётся из пути внутри
     архива: сервис очистки структуру путей сохраняет, проверено.
+
+    Папка сверяется со списком App Store (lib/store_locales.py): `en-UK`
+    становится `en-GB`, а похожее на локаль, но несуществующее, отсеивается
+    здесь, а не отказом Apple посреди заливки.
+
+    **Кадры в корне архива** уходят в `default_locale` — основной язык
+    приложения, — если в архиве нет ни одной папки языка. Решение владельца:
+    заливаем, что есть. Kegel Women 2, 7 октября: тест и вариант завелись, а
+    кадры лежали без папки, и заливка встала.
     """
     if target.exists():
         shutil.rmtree(target)
@@ -94,7 +104,8 @@ def spread(archive_path: Path, label: str, target: Path) -> dict[str, list[Path]
                 foreign.append(member.filename)
                 continue
 
-            locale = next((part for part in name.parts if LOCALE_RE.match(part)), None)
+            locale = next((store_locale(part) for part in name.parts[:-1]
+                           if store_locale(part)), None)
             if locale is None:
                 foreign.append(member.filename)
                 continue
@@ -105,6 +116,22 @@ def spread(archive_path: Path, label: str, target: Path) -> dict[str, list[Path]
             with archive.open(member) as source:
                 out_path.write_bytes(source.read())
             by_locale.setdefault(locale, []).append(out_path)
+
+    # Ни одной папки языка, а кадры лежат в корне — в основной язык.
+    if not by_locale and default_locale:
+        roots = [name for name in foreign
+                 if len(Path(name).parts) == 1 and Path(name).suffix.lower() in IMAGES]
+        if roots:
+            out_dir = target / default_locale
+            out_dir.mkdir(exist_ok=True)
+            with zipfile.ZipFile(archive_path) as archive:
+                for name in roots:
+                    out_path = out_dir / Path(name).name
+                    out_path.write_bytes(archive.read(name))
+                    by_locale.setdefault(default_locale, []).append(out_path)
+            foreign = [name for name in foreign if name not in roots]
+            print(f"  кадры из корня архива ({len(roots)}) — в основной язык "
+                  f"{default_locale}")
 
     if foreign:
         print(f"  пропущено файлов вне папок локалей: {len(foreign)}")
@@ -118,7 +145,17 @@ def spread(archive_path: Path, label: str, target: Path) -> dict[str, list[Path]
     return by_locale
 
 
-def unpack(url: str, label: str, target: Path) -> dict[str, list[Path]]:
+def primary_locale(client: AppStoreConnectClient, app_id: str) -> str | None:
+    """Основной язык приложения из App Store Connect, или None."""
+    try:
+        payload = client.request("GET", f"/apps/{app_id}?fields[apps]=primaryLocale")
+    except AppStoreConnectError:
+        return None
+    return store_locale(payload["data"]["attributes"].get("primaryLocale") or "")
+
+
+def unpack(url: str, label: str, target: Path,
+           default_locale: str | None = None) -> dict[str, list[Path]]:
     """Скачивает архив, снимает метаданные и раскладывает его.
 
     Очистка стоит между скачиванием и разбором намеренно: так ни один кадр не
@@ -128,7 +165,7 @@ def unpack(url: str, label: str, target: Path) -> dict[str, list[Path]]:
     archive_path = PREPARED_DIR / f"downloaded_{label}.zip"
     download_google_drive_file(url, archive_path, f"{label} ZIP")
     strip_metadata(archive_path, f"{label} ZIP")
-    return spread(archive_path, label, target)
+    return spread(archive_path, label, target, default_locale)
 
 
 def fill_treatment(client: AppStoreConnectClient, treatment_id: str,
@@ -236,6 +273,9 @@ def main() -> int:
         print(f"Тест найден: «{found['name']}» ({found['id']}), "
               f"состояние {found['state']}")
 
+    # Основной язык приложения — туда уходят кадры из корня архива.
+    primary = primary_locale(client, app["id"])
+
     # ── варианты ───────────────────────────────────────────────────────────
     by_id = {t["id"]: t for t in found.get("treatments", [])}
     report = {"experiment": {"id": found["id"], "name": found["name"]}, "treatments": []}
@@ -262,7 +302,7 @@ def main() -> int:
         print(f"  вариант «{name}»: готовим кадры")
         try:
             by_locale = unpack(item["zip_url"], f"ab_{treatment_id}",
-                               PREPARED_DIR / "ab" / treatment_id)
+                               PREPARED_DIR / "ab" / treatment_id, primary)
         except exp.Problem as error:
             print(f"ERROR: {error}", file=sys.stderr)
             return 1
