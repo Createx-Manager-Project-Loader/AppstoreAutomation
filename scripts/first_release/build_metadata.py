@@ -45,17 +45,6 @@ FLAT_FIELDS = {
     "app_information.secondary_category": "secondary_category.txt",
 }
 
-# Информация для ревью — отдельный каталог review_information/
-REVIEW_FIELDS = {
-    "review_info.first_name": "first_name.txt",
-    "review_info.last_name": "last_name.txt",
-    "review_info.phone": "phone_number.txt",
-    "review_info.email": "email_address.txt",
-    "review_info.demo_user": "demo_user.txt",
-    "review_info.demo_password": "demo_password.txt",
-    "review_info.notes": "notes.txt",
-}
-
 # Названия категорий так, как их пишет App Store Connect → enum API.
 # Список получен из /v1/appCategories, а не из памяти.
 CATEGORIES = {
@@ -220,42 +209,19 @@ def build(listing: dict, out_dir: Path) -> dict:
         write(metadata / name, text)
         written.append(name)
 
-    # Информация для ревью — одна запись у Apple, и принимает она её только
-    # целиком: на PATCH без фамилии, почты или телефона отвечает «You must
-    # provide a value for contactLastName» и валит ВЕСЬ вызов deliver, вместе
-    # с описанием и ключевыми словами, которые к ревью отношения не имеют.
+    # Информацию для ревью здесь НЕ раскладываем: её пишет setup_app.py
+    # прямым вызовом appStoreReviewDetail. Причина та же, что у возрастного
+    # рейтинга — один владелец у поля, но здесь она ещё и спасает прогон.
     #
-    # Поэтому каталог `review_information/` пишется либо полностью, либо никак.
-    # Отдельно про заметки: deliver патчит запись, едва увидит в каталоге хоть
-    # один файл. Живой случай — FamilyTree 20, 7 октября: телефона в листинге
-    # не было, контакт мы пропустили правильно, а `notes.txt` всё равно
-    # записали — и прогон упал на заливке карточки.
-    contact = ["review_info.first_name", "review_info.last_name",
-               "review_info.phone", "review_info.email"]
-    missing = [path for path in contact if value_of(listing, path)[0] is None]
-    phone = value_of(listing, "review_info.phone")[0]
-    bad_phone = phone is not None and not valid_phone(phone)
-
-    contact_ready = not missing and not bad_phone
-    if not contact_ready:
-        why = []
-        if missing:
-            why.append("не заполнено: " + ", ".join(p.split(".")[1] for p in missing))
-        if bad_phone:
-            why.append(f"телефон «{phone}» не в международном формате "
-                       "(нужен +код страны, например +44 844 209 0611)")
-        skipped.append(
-            "review_info: Apple принимает информацию для ревью только целиком — "
-            + "; ".join(why) + ". Пропущен весь блок, включая заметки и демо-аккаунт")
-
-    for path, name in REVIEW_FIELDS.items():
-        if not contact_ready:
-            continue
-        text = take(path)
-        if text is None:
-            continue
-        write(metadata / "review_information" / name, text)
-        written.append(f"review_information/{name}")
+    # Apple хранит эту информацию одной записью и на PATCH без фамилии, почты
+    # или телефона отвечает «You must provide a value for contactLastName»,
+    # заваливая ВЕСЬ вызов deliver — вместе с описанием, ключевыми словами и
+    # скриншотами, которые к ревью отношения не имеют. А deliver лезет её
+    # патчить, едва увидит в каталоге хоть один файл: на FamilyTree 20 хватило
+    # одних заметок, чтобы прогон встал.
+    #
+    # Прямой вызов пишет то, что есть, и падает в одиночку: остальная карточка
+    # уезжает, а незаполненное поле видно в отчёте.
 
     # Возрастной рейтинг здесь не раскладывается: его пишет setup_app.py прямым
     # вызовом ageRatingDeclaration. У поля должен быть ровно один владелец —

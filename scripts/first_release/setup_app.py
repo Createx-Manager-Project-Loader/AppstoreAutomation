@@ -143,6 +143,13 @@ class Setup:
                             self.set_age_rating, self.get_age_rating,
                             self.filled_age_rating))
 
+        review = self.wanted_review()
+        if review:
+            out.append(Step("информация для ревью", review,
+                            self.set_review, self.get_review, self.filled_review))
+        else:
+            self.skipped.append("review_info: в листинге нет ни одного поля")
+
         tier = self.field("pricing.tier", required=False)
         if tier:
             out.append(Step("цена", str(tier).strip().lower(),
@@ -378,6 +385,74 @@ class Setup:
     def get_countries(self) -> set[str]:
         return {code for code, row in self.territory_rows().items()
                 if row["attributes"].get("available")}
+
+    # информация для ревью ────────────────────────────────────────
+
+    # Имена полей Apple. Пишем только то, что заполнено: половина контакта
+    # лучше, чем ничего — её видно в кабинете, и ПМ дозаполняет остальное
+    # руками, а не ищет, куда делось.
+    REVIEW_ATTRS = {
+        "review_info.first_name": "contactFirstName",
+        "review_info.last_name": "contactLastName",
+        "review_info.phone": "contactPhone",
+        "review_info.email": "contactEmail",
+        "review_info.demo_user": "demoAccountName",
+        "review_info.demo_password": "demoAccountPassword",
+        "review_info.notes": "notes",
+    }
+
+    def wanted_review(self) -> dict:
+        """Что из информации для ревью есть в листинге."""
+        want = {}
+        for path, attribute in self.REVIEW_ATTRS.items():
+            text = self.field(path, required=False)
+            if text is not None and str(text).strip():
+                want[attribute] = str(text)
+        if want:
+            # Apple хранит признак отдельно от самих полей: без него демо-данные
+            # не показываются ревьюеру, даже если записаны.
+            want["demoAccountRequired"] = bool(want.get("demoAccountName"))
+        return want
+
+    def review_detail_id(self):
+        payload = self.maybe(f"/appStoreVersions/{self.version_id()}/appStoreReviewDetail")
+        return payload["data"]["id"] if payload and payload.get("data") else None
+
+    def set_review(self, want: dict) -> None:
+        detail = self.review_detail_id()
+        if detail:
+            self.client.request("PATCH", f"/appStoreReviewDetails/{detail}", json={"data": {
+                "type": "appStoreReviewDetails", "id": detail, "attributes": want}})
+            return
+        self.client.request("POST", "/appStoreReviewDetails", json={"data": {
+            "type": "appStoreReviewDetails", "attributes": want,
+            "relationships": {"appStoreVersion": {"data": {
+                "type": "appStoreVersions", "id": self.version_id()}}}}})
+
+    def get_review(self) -> dict:
+        payload = self.maybe(f"/appStoreVersions/{self.version_id()}/appStoreReviewDetail")
+        if not payload or not payload.get("data"):
+            return {}
+        attributes = payload["data"]["attributes"]
+        return {key: value for key, value in attributes.items()
+                if key in self.REVIEW_ATTRS.values() and value}
+
+    def filled_review(self):
+        given = self.get_review()
+        return f"{len(given)} полей" if given else None
+
+    def maybe(self, path: str):
+        """GET, отвечающий None вместо исключения на 404.
+
+        У новой версии записи для ревью ещё нет, и Apple отвечает 404 на
+        чтение. Это нормальный ответ «ещё не создавали», а не сбой.
+        """
+        try:
+            return self.client.request("GET", path)
+        except AppStoreConnectError as error:
+            if "404" in str(error):
+                return None
+            raise
 
     # рекламный идентификатор ──────────────────────────────────────────────
 

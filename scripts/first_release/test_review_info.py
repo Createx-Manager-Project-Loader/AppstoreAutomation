@@ -1,46 +1,48 @@
-"""Информация для ревью пишется только целиком. Apple не трогаем.
+"""Информация для ревью: пишем то, что есть. App Store Connect не трогаем.
 
-Apple хранит её одной записью: PATCH без фамилии, почты или телефона валит
-весь вызов deliver вместе с описанием и ключевыми словами. А deliver патчит
-запись, едва увидит в каталоге хоть один файл — поэтому одни только заметки
-роняли прогон. Живой случай: FamilyTree 20, 7 октября.
+Раньше её раскладывал deliver, и неполный контакт валил ВЕСЬ вызов — вместе
+с описанием, ключевыми словами и скриншотами. Теперь её пишет прямой вызов
+appStoreReviewDetail: заполненное уезжает, незаполненное остаётся пустым, а
+отказ Apple роняет только этот шаг.
 """
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-import build_metadata as bm  # noqa: E402
-
-GOOD_PHONE = "+375 29 111 22 33"
-
-
-def listing(**review):
-    base = {
-        "meta": {"locale": "en-US"},
-        "app_information": {"name": {"value": "App", "status": "confirmed"}},
-        "version": {"description": {"value": "Текст", "status": "confirmed"}},
-        "review_info": {
-            "first_name": {"value": "Jelena", "status": "confirmed"},
-            "last_name": {"value": "Živanović", "status": "confirmed"},
-            "phone": {"value": GOOD_PHONE, "status": "confirmed"},
-            "email": {"value": "a@b.com", "status": "confirmed"},
-            "notes": {"value": "Как дойти до пейволла", "status": "confirmed"},
-        },
-    }
-    base["review_info"].update(review)
-    return base
+from setup_app import Setup  # noqa: E402
+from upload_screenshots_api import AppStoreConnectError  # noqa: E402
 
 
-def build(data):
-    root = Path(tempfile.mkdtemp()) / "out"
-    result = bm.build(data, root)
-    folder = root / "metadata" / "review_information"
-    files = sorted(item.name for item in folder.iterdir()) if folder.is_dir() else []
-    return files, result["skipped"]
+class FakeClient:
+    """Запоминает вызовы. `detail` — есть ли уже запись у версии."""
+
+    def __init__(self, detail=None):
+        self.detail = detail
+        self.calls = []
+
+    def request(self, method, path, json=None):
+        self.calls.append((method, path, json))
+        if method == "GET" and path.endswith("/appStoreReviewDetail"):
+            if self.detail is None:
+                raise AppStoreConnectError(f"GET {path} failed with 404: not found")
+            return {"data": {"id": "d1", "attributes": self.detail}}
+        return {"data": {"id": "d1", "attributes": json["data"]["attributes"]}}
+
+
+def setup_with(review, detail=None):
+    setup = Setup.__new__(Setup)
+    setup.client = FakeClient(detail)
+    setup.listing = {"review_info": review}
+    setup.skipped = []
+    setup._version_id = "v1"
+    return setup
+
+
+def field(value, status="confirmed"):
+    return {"value": value, "status": status}
 
 
 def check(label, condition):
@@ -51,30 +53,56 @@ def check(label, condition):
 def main():
     ok = True
 
-    files, skipped = build(listing())
-    ok &= check("полный контакт — каталог пишется",
-                "notes.txt" in files and "phone_number.txt" in files)
+    # Полный контакт.
+    full = setup_with({
+        "first_name": field("Jelena"), "last_name": field("Živanović"),
+        "phone": field("+381 11 123 45 67"), "email": field("a@b.com"),
+        "notes": field("Как дойти до пейволла"),
+    })
+    want = full.wanted_review()
+    ok &= check("полный контакт собран",
+                want.get("contactFirstName") == "Jelena"
+                and want.get("contactPhone") == "+381 11 123 45 67"
+                and want.get("notes") == "Как дойти до пейволла")
+    ok &= check("демо-аккаунт не требуется", want.get("demoAccountRequired") is False)
 
-    # Нет телефона: раньше notes.txt всё равно записывался и ронял deliver.
-    files, skipped = build(listing(phone={"value": None, "status": "unanswered"}))
-    ok &= check("нет телефона — каталога нет вовсе", files == [])
-    ok &= check("причина названа и упоминает заметки",
-                any("заметки" in line for line in skipped))
-    ok &= check("причина называет недостающее поле",
-                any("phone" in line for line in skipped))
+    # Главное: без телефона всё равно пишем то, что есть.
+    partial = setup_with({
+        "first_name": field("Jelena"), "last_name": field("Živanović"),
+        "phone": {"value": None, "status": "unanswered"}, "email": field("a@b.com"),
+        "notes": field("Заметки"),
+    })
+    want = partial.wanted_review()
+    ok &= check("без телефона блок НЕ пустеет", bool(want))
+    ok &= check("уходит то, что заполнено",
+                set(want) == {"contactFirstName", "contactLastName", "contactEmail",
+                              "notes", "demoAccountRequired"})
+    ok &= check("телефона в запросе нет", "contactPhone" not in want)
 
-    # Телефон есть, но в неверном формате — Apple такой тоже не примет.
-    files, skipped = build(listing(phone={"value": "8 029 111 22 33", "status": "confirmed"}))
-    ok &= check("кривой телефон — каталога нет вовсе", files == [])
-    ok &= check("причина про формат номера",
-                any("международном формате" in line or "международн" in line
-                    for line in skipped))
+    # Пустой блок — шага не будет.
+    empty = setup_with({"first_name": {"value": None, "status": "unanswered"}})
+    ok &= check("совсем пусто — нечего писать", empty.wanted_review() == {})
 
-    # Описание при этом должно залиться: оно к ревью отношения не имеет.
-    root = Path(tempfile.mkdtemp()) / "out"
-    result = bm.build(listing(phone={"value": None, "status": "unanswered"}), root)
-    ok &= check("описание разложено, несмотря на пропуск блока ревью",
-                any("description.txt" in name for name in result["written"]))
+    # Записи ещё нет: 404 на чтении и POST на запись.
+    fresh = setup_with({"first_name": field("A"), "last_name": field("B")})
+    ok &= check("чтения нет — проба не падает", fresh.filled_review() is None)
+    fresh.set_review(fresh.wanted_review())
+    methods = [c[0] for c in fresh.client.calls]
+    ok &= check("создаём через POST", "POST" in methods and "PATCH" not in methods)
+
+    # Запись есть: PATCH, и проба видит заполненное.
+    existing = setup_with({"first_name": field("A")},
+                          detail={"contactFirstName": "Старое", "notes": None})
+    ok &= check("проба видит заполненное", existing.filled_review() == "1 полей")
+    existing.set_review(existing.wanted_review())
+    ok &= check("обновляем через PATCH",
+                any(c[0] == "PATCH" for c in existing.client.calls))
+
+    # Демо-аккаунт поднимает признак.
+    demo = setup_with({"first_name": field("A"), "demo_user": field("tester"),
+                       "demo_password": field("secret")})
+    ok &= check("с демо-аккаунтом признак поднят",
+                demo.wanted_review().get("demoAccountRequired") is True)
 
     print("\nИтог:", "всё сходится" if ok else "есть расхождения")
     return 0 if ok else 1
