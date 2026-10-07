@@ -220,29 +220,39 @@ def build(listing: dict, out_dir: Path) -> dict:
         write(metadata / name, text)
         written.append(name)
 
-    # Контакт для ревью Apple принимает только целиком: на PATCH с пустым
-    # именем она отвечает «You must provide a value for contactFirstName».
-    # Поэтому либо все четыре поля, либо ни одного — половина хуже, чем ничего.
+    # Информация для ревью — одна запись у Apple, и принимает она её только
+    # целиком: на PATCH без фамилии, почты или телефона отвечает «You must
+    # provide a value for contactLastName» и валит ВЕСЬ вызов deliver, вместе
+    # с описанием и ключевыми словами, которые к ревью отношения не имеют.
+    #
+    # Поэтому каталог `review_information/` пишется либо полностью, либо никак.
+    # Отдельно про заметки: deliver патчит запись, едва увидит в каталоге хоть
+    # один файл. Живой случай — FamilyTree 20, 7 октября: телефона в листинге
+    # не было, контакт мы пропустили правильно, а `notes.txt` всё равно
+    # записали — и прогон упал на заливке карточки.
     contact = ["review_info.first_name", "review_info.last_name",
                "review_info.phone", "review_info.email"]
-    contact_ready = all(value_of(listing, path)[0] is not None for path in contact)
+    missing = [path for path in contact if value_of(listing, path)[0] is None]
+    phone = value_of(listing, "review_info.phone")[0]
+    bad_phone = phone is not None and not valid_phone(phone)
+
+    contact_ready = not missing and not bad_phone
     if not contact_ready:
-        skipped.append("review_info: контакт заливается только целиком, "
-                       "а заполнены не все четыре поля — пропущен")
+        why = []
+        if missing:
+            why.append("не заполнено: " + ", ".join(p.split(".")[1] for p in missing))
+        if bad_phone:
+            why.append(f"телефон «{phone}» не в международном формате "
+                       "(нужен +код страны, например +44 844 209 0611)")
+        skipped.append(
+            "review_info: Apple принимает информацию для ревью только целиком — "
+            + "; ".join(why) + ". Пропущен весь блок, включая заметки и демо-аккаунт")
 
     for path, name in REVIEW_FIELDS.items():
-        if path in contact and not contact_ready:
+        if not contact_ready:
             continue
         text = take(path)
         if text is None:
-            continue
-        if path == "review_info.phone" and not valid_phone(text):
-            # Apple проверяет номер и отвечает «must be in a valid format»
-            # уже посреди заливки. Ловим раньше, чтобы не ронять прогон
-            # на середине карточки.
-            skipped.append(
-                f"{path}: «{text}» — нужен международный формат с кодом страны, "
-                "например +44 844 209 0611")
             continue
         write(metadata / "review_information" / name, text)
         written.append(f"review_information/{name}")
