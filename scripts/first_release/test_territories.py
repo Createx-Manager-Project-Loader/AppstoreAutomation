@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from setup_app import Setup  # noqa: E402
+from upload_screenshots_api import AppStoreConnectError  # noqa: E402
 
 
 class FakeClient:
@@ -47,6 +48,25 @@ def main():
     for raw, want in CASES:
         got = setup.wanted_territories(raw)
         ok &= check(f"{str(raw):16s} → {want}", got == want)
+
+    # Новое приложение: доступности нет, чтение отвечает 404. Это «пусто»,
+    # и запись должна пойти в ветку создания, а не упасть на чтении.
+    class Fresh(FakeClient):
+        def __init__(self):
+            self.calls = []
+
+        def request(self, method, path, json=None):
+            self.calls.append(method)
+            if method == "GET" and "territoryAvailabilities" in path:
+                raise AppStoreConnectError(f"GET {path} failed with 404: no appAvailabilities")
+            return {"data": {}}
+
+    fresh = Setup.__new__(Setup)
+    fresh.client = Fresh()
+    fresh.app_id = "1"
+    ok &= check("404 на чтении доступности — это пусто", fresh.territory_rows() == {})
+    fresh.set_countries("worldwide")
+    ok &= check("у нового приложения доступность создаётся POST", "POST" in fresh.client.calls)
 
     for raw in ("worldwide", "Worldwide", " WORLDWIDE "):
         got = setup.wanted_territories(raw)

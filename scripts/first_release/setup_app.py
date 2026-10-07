@@ -326,9 +326,16 @@ class Setup:
         связей, и понять, к какой стране относится строка, становится нечем —
         разве что расшифровывать её непрозрачный id, чего делать не стоит.
         """
-        payload = self.client.request(
-            "GET", f"https://api.appstoreconnect.apple.com/v2/appAvailabilities/"
-                   f"{self.app_id}/territoryAvailabilities?limit=200&include=territory")
+        # У нового приложения доступности ещё нет, и Apple отвечает 404 на
+        # само чтение («There is no resource of type 'appAvailabilities'»).
+        # Это «пусто», а не сбой: пустой ответ ведёт set_countries в ветку
+        # создания. Раньше 404 вылетал отсюда исключением, и до POST дело не
+        # доходило — FamilyTree 20, 7 октября: цена встала, страны нет.
+        payload = self.maybe(
+            f"https://api.appstoreconnect.apple.com/v2/appAvailabilities/"
+            f"{self.app_id}/territoryAvailabilities?limit=200&include=territory")
+        if not payload:
+            return {}
         rows = {}
         for row in payload.get("data", []):
             code = row["relationships"]["territory"]["data"]["id"]
