@@ -291,10 +291,26 @@ class Setup:
     # страны ───────────────────────────────────────────────────────────────
 
     def wanted_territories(self, want) -> list[str]:
+        """Коды стран из поля листинга. Форма записи бывает любой.
+
+        `value_of` отдаёт значение строкой, поэтому список YAML
+        (`countries: { value: [TUR] }`) доезжает сюда как «['TUR']» — с
+        квадратными скобками и кавычками внутри строки. Живой случай:
+        Locator 73 упал на «неизвестные коды стран: [\"['TUR']\"]», хотя в
+        файле было написано правильно. Поэтому скобки и кавычки снимаем, а
+        разделителем считаем и запятую, и пробел.
+        """
         if isinstance(want, str) and want.strip().lower() == "worldwide":
             return [t["id"] for t in self.client.get_all("/territories?limit=200")]
-        codes = want if isinstance(want, list) else str(want).replace(",", " ").split()
-        return [str(code).strip().upper() for code in codes if str(code).strip()]
+
+        if isinstance(want, list):
+            codes = want
+        else:
+            cleaned = str(want).strip().strip("[]")
+            codes = cleaned.replace(",", " ").split()
+
+        return [str(code).strip().strip("'\"").upper() for code in codes
+                if str(code).strip().strip("'\"")]
 
     def territory_rows(self) -> dict[str, dict]:
         """Текущая доступность по странам: код ISO-3 → строка ASC.
@@ -452,6 +468,27 @@ def short(value) -> str:
     return text if len(text) <= 60 else text[:57] + "…"
 
 
+def probe(step):
+    """Проба «в сторе уже заполнено?». 404 здесь значит «ещё ничего нет».
+
+    У приложения, которое заводят с нуля, не существует ни расписания цен, ни
+    доступности по странам: Apple отвечает 404 на само чтение
+    (`There is no resource of type 'appAvailabilities' with id ...`). Для
+    пробы это нормальный ответ, а не сбой.
+
+    Раньше исключение из пробы ловил общий except шага: шаг объявлялся
+    упавшим, `apply` до вызова не доходил, и цену со странами нельзя было
+    выставить ни одному новому приложению. Живой случай — FamilyTree 20,
+    три прогона подряд с «не встало: цена, страны».
+    """
+    try:
+        return step.filled()
+    except AppStoreConnectError as error:
+        if "404" in str(error):
+            return None
+        raise
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--listing", type=Path, required=True)
@@ -491,7 +528,7 @@ def main() -> int:
                 print(f"  — {step.name}: поставил бы {short(step.want)}")
                 continue
             if not (args.verify or overwrite) and step.filled:
-                current = step.filled()
+                current = probe(step)
                 if current:
                     print(f"  ={step.name}: уже выставлено ({current}) — оставляем как есть")
                     left.append(f"{step.name}: {current}")
