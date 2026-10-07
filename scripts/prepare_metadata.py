@@ -556,49 +556,29 @@ CANONICAL_LOCALES = {
 }
 
 
-# Локали, которых нет в таблице языков, но App Store их принимает. Папка с
-# таким именем должна доезжать до стора, а не отсеиваться нами.
-EXTRA_STORE_LOCALES = (
-    "bn-BD", "gu-IN", "kn-IN", "ml-IN", "mr-IN", "or-IN",
-    "pa-IN", "sl-SI", "ta-IN", "te-IN", "ur-PK",
-)
-
-# Весь список App Store. По нему же проверяет fastlane: имя папки не из этого
-# списка он отвергает, и отвергает весь прогон целиком.
-STORE_LOCALES = {locale.lower(): locale
-                 for locale in list(CANONICAL_LOCALES.values()) + list(EXTRA_STORE_LOCALES)}
-
-# Словарь привычных написаний — общий с A/B-тестами (lib/store_locales.py).
-from store_locales import FOLDER_ALIASES  # noqa: E402
+# Папки в архивах со скриншотами — ТОЛЬКО коды локалей App Store, во всех
+# заливках одинаково: обычной, первой и A/B. Решение владельца, 7 октября:
+# единый концепт, без названий языков словами («English», «Portuguese BR»).
+# Список кодов и привычные написания (en-UK → en-GB) — в lib/store_locales.py,
+# один на всех.
+#
+# Названия языков словами по-прежнему разбирает locales_for_name — но это
+# ячейки ASO-таблицы, а не папки архива, и там слова и есть формат.
+from store_locales import FOLDER_ALIASES, store_locale  # noqa: E402,F401
 
 
 def locales_for_folder(name):
-    """То же, что locales_for_name, но для имени папки в архиве скриншотов.
+    """Имя папки в архиве скриншотов → [локаль App Store] или [].
 
-    Папки называют люди, и пишут они как привычно: RU, en-us, Pt-Br. App Store
-    принимает ровно одно написание, поэтому известную локаль в любом регистре
-    приводим к каноническому виду. Разбор ASO-таблицы этим НЕ пользуется
-    намеренно: там `locales_for_name` смотрит на содержимое ячеек, и ячейка со
-    словом `NO` («нет») не должна вдруг стать норвежским.
+    Только код: `en-US`, `de-DE`, `pt-BR`; регистр не важен, `en-UK` →
+    `en-GB`. Слово («English») — не локаль: такая папка попадает в
+    предупреждение «не опознана как локаль», остальное заливается.
 
-    **Имя, похожее на локаль, но не существующее, сюда не проходит.** Раньше
-    любое `xx-YY` принималось на веру, папка раскладывалась под этим именем, и
-    прогон падал позже — на заливке карточки, где fastlane сверяет имена со
-    своим списком. Теперь неизвестное имя отсеивается здесь же и попадает в
-    предупреждение «папка не опознана как локаль», а остальное заливается.
+    Возвращает список ради совместимости с вызывающим кодом: раньше одна
+    папка-слово могла давать несколько локалей («English» → четыре).
     """
-    key = name.strip().lower()
-
-    alias = FOLDER_ALIASES.get(key)
-    if alias:
-        return [alias]
-
-    canonical = STORE_LOCALES.get(key)
-    if canonical:
-        return [canonical]
-
-    return [locale for locale in locales_for_name(name)
-            if locale.lower() in STORE_LOCALES]
+    locale = store_locale(name)
+    return [locale] if locale else []
 
 
 def column_index(cell_reference):

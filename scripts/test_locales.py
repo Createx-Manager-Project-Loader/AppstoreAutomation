@@ -23,8 +23,11 @@ pl pt-BR pt-PT ro ru sk sl-SI sv ta-IN te-IN th tr uk ur-PK vi zh-Hans zh-Hant""
 
 GOOD = [("en-UK", "en-GB"), ("EN-uk", "en-GB"), ("en-GB", "en-GB"),
         ("en-us", "en-US"), ("RU", "ru"), ("ta-IN", "ta-IN"),
-        ("zh-CN", "zh-Hans"), ("pt-br", "pt-BR"), ("Portuguese Brazil", "pt-BR")]
-BAD = ["ENG", "xx-YY", "en_uk", "Localization 1", "screenshots", ""]
+        ("zh-CN", "zh-Hans"), ("pt-br", "pt-BR")]
+# Только коды: названия языков словами — не локаль (решение владельца,
+# единый концепт для всех заливок).
+BAD = ["ENG", "xx-YY", "en_uk", "Localization 1", "screenshots", "",
+       "English", "Portuguese Brazil", "Chinese simplified", "German"]
 
 
 def check(label, condition):
@@ -43,7 +46,8 @@ def main():
 
     # Всё, что мы готовы отдать Apple, Apple обязана принять.
     produced = set()
-    for name in list(pm.STORE_LOCALES) + [n for n, _ in GOOD]:
+    from store_locales import STORE_LOCALES
+    for name in list(STORE_LOCALES) + [n for n, _ in GOOD]:
         produced.update(pm.locales_for_folder(name))
     extra = sorted(produced - APPLE)
     ok &= check(f"ни одной локали мимо списка Apple (лишние: {extra or 'нет'})", not extra)
