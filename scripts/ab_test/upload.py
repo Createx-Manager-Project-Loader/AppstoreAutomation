@@ -52,7 +52,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "lib"))
 import experiments as exp  # noqa: E402
 from metaclean import strip_metadata  # noqa: E402
 from paths import PREPARED_DIR  # noqa: E402
-from prepare_metadata import download_google_drive_file, locales_for_folder  # noqa: E402
+from prepare_metadata import download_google_drive_file  # noqa: E402
 from store_locales import store_locale  # noqa: E402
 from upload_screenshots_api import (  # noqa: E402
     EXPERIMENT_PARENT,
@@ -78,10 +78,10 @@ def spread(archive_path: Path, label: str, target: Path,
     Возвращает локаль → список файлов. Папка локали берётся из пути внутри
     архива: сервис очистки структуру путей сохраняет, проверено.
 
-    Имя папки разбирается так же, как в обычной заливке: коды локалей,
-    привычные написания (`en-UK` → `en-GB`) и названия языков, как их пишет
-    команда («English», «Portuguese BR»). Несуществующее отсеивается здесь,
-    а не отказом Apple посреди заливки.
+    Папка — только код локали App Store (`en-US`, `de-DE`; регистр не важен,
+    `en-UK` → `en-GB`). Названия языков словами не принимаются: в A/B всё
+    чётко кодами. Несуществующее отсеивается здесь, а не отказом Apple
+    посреди заливки.
 
     **Кадры в корне архива** уходят в `default_locale` — основной язык
     приложения, — если в архиве нет ни одной папки языка. Решение владельца:
@@ -105,25 +105,21 @@ def spread(archive_path: Path, label: str, target: Path,
                 foreign.append(member.filename)
                 continue
 
-            # Тот же разбор, что у обычной заливки: понимает и коды (en-US,
-            # en-UK → en-GB), и названия языков, как их пишет команда
-            # («English», «Portuguese BR», «Chinese simplified»). Одна папка
-            # может дать несколько локалей: «English» — это en-US, en-GB,
-            # en-AU и en-CA. Раньше у A/B был свой шаблон, знавший только
-            # коды, и архив Kegel Women 2 с папками-словами давал ноль.
-            locales = next((found for part in name.parts[:-1]
-                            if (found := locales_for_folder(part))), None)
-            if not locales:
+            # Только коды локалей App Store (en-US, de-DE; регистр не важен,
+            # en-UK → en-GB). Названия языков словами («English», «German»)
+            # намеренно не принимаем — решение владельца: в A/B всё чётко
+            # кодами, одна папка — одна локаль, без догадок.
+            locale = next((store_locale(part) for part in name.parts[:-1]
+                           if store_locale(part)), None)
+            if locale is None:
                 foreign.append(member.filename)
                 continue
 
-            data = archive.read(member)
-            for locale in locales:
-                out_dir = target / locale
-                out_dir.mkdir(exist_ok=True)
-                out_path = out_dir / name.name
-                out_path.write_bytes(data)
-                by_locale.setdefault(locale, []).append(out_path)
+            out_dir = target / locale
+            out_dir.mkdir(exist_ok=True)
+            out_path = out_dir / name.name
+            out_path.write_bytes(archive.read(member))
+            by_locale.setdefault(locale, []).append(out_path)
 
     # Ни одной папки языка, а кадры лежат в корне — в основной язык.
     if not by_locale and default_locale:
@@ -142,11 +138,15 @@ def spread(archive_path: Path, label: str, target: Path,
                   f"{default_locale}")
 
     if foreign:
-        print(f"  пропущено файлов вне папок локалей: {len(foreign)}")
+        folders = sorted({Path(name).parts[0] for name in foreign
+                          if len(Path(name).parts) > 1})
+        print(f"  пропущено файлов вне папок локалей: {len(foreign)}"
+              + (f"; папки не названы кодом: {', '.join(folders)}" if folders else ""))
     if not by_locale:
         raise exp.Problem(
-            f"в архиве «{label}» нет папок по языкам. Внутри должны быть папки "
-            "с кодами локалей (en-US, de-DE), а кадры — в них")
+            f"в архиве «{label}» нет ни одной папки с кодом локали. Папки должны "
+            "называться кодами App Store — en-US, de-DE, pt-BR, — а не словами "
+            "(English, German)")
 
     for files in by_locale.values():
         files.sort(key=image_sort_key)
