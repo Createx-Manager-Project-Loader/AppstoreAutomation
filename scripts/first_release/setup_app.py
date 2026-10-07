@@ -67,9 +67,15 @@ class Step:
     виден, а не случился молча.
     """
 
-    def __init__(self, name: str, want: Any, apply, read, filled=None) -> None:
+    def __init__(self, name: str, want: Any, apply, read, filled=None,
+                 soft: bool = False) -> None:
         self.name, self.want, self.apply, self.read = name, want, apply, read
         self.filled = filled
+        # Некритичный шаг: его неудача не красит прогон, а идёт в отчёт
+        # предупреждением. Решение владельца — для информации для ревью: без
+        # неё всё остальное в карточке полезно, а отправить на ревью с пустым
+        # контактом App Store Connect всё равно не даст.
+        self.soft = soft
 
 
 class Setup:
@@ -146,7 +152,8 @@ class Setup:
         review = self.wanted_review()
         if review:
             out.append(Step("информация для ревью", review,
-                            self.set_review, self.get_review, self.filled_review))
+                            self.set_review, self.get_review, self.filled_review,
+                            soft=True))
         else:
             self.skipped.append("review_info: в листинге нет ни одного поля")
 
@@ -550,6 +557,13 @@ def short(value) -> str:
     return text if len(text) <= 60 else text[:57] + "…"
 
 
+def short_error(error) -> str:
+    """Причина отказа Apple одной строкой — поле detail, без JSON вокруг."""
+    import re
+    details = re.findall(r'"detail"\s*:\s*"([^"]+)"', str(error))
+    return "; ".join(dict.fromkeys(details)) if details else str(error).splitlines()[0][:200]
+
+
 def probe(step):
     """Проба «в сторе уже заполнено?». 404 здесь значит «ещё ничего нет».
 
@@ -603,7 +617,7 @@ def main() -> int:
     overwrite = os.environ.get("FIRST_RELEASE_OVERWRITE", "").strip().lower() in (
         "yes", "true", "1")
 
-    failures, left = [], []
+    failures, left, warnings = [], [], []
     for step in steps:
         try:
             if args.dry_run:
@@ -626,10 +640,15 @@ def main() -> int:
             else:
                 print(f"  {mark} {step.name}: хотели {short(step.want)}, в сторе {short(got)}")
             if not ok:
-                failures.append(step.name)
+                (warnings if step.soft else failures).append(step.name)
         except (Problem, AppStoreConnectError) as error:
-            print(f"  НЕТ {step.name}: {error}", file=sys.stderr)
-            failures.append(step.name)
+            if step.soft:
+                print(f"  ПРЕДУПРЕЖДЕНИЕ {step.name}: не залилось — {short_error(error)}",
+                      file=sys.stderr)
+                warnings.append(step.name)
+            else:
+                print(f"  НЕТ {step.name}: {error}", file=sys.stderr)
+                failures.append(step.name)
 
     if left:
         print(f"\nОставлено как было: {len(left)} — в сторе уже заполнено, "
@@ -637,6 +656,12 @@ def main() -> int:
         for line in left:
             print(f"  - {line}")
         print("Чтобы залить поверх, поставьте галочку перезаписи в консоли.")
+
+    if warnings:
+        # Строка-признак для консоли: по ней она показывает пометку «к
+        # сведению», а не ошибку.
+        print(f"WARNING: не залилось (некритично): {', '.join(warnings)} — "
+              "дозаполните в App Store Connect до отправки на ревью")
 
     if failures:
         print(f"ERROR: не встало: {', '.join(failures)}", file=sys.stderr)
