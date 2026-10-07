@@ -555,6 +555,34 @@ CANONICAL_LOCALES = {
 }
 
 
+# Локали, которых нет в таблице языков, но App Store их принимает. Папка с
+# таким именем должна доезжать до стора, а не отсеиваться нами.
+EXTRA_STORE_LOCALES = (
+    "bn-BD", "gu-IN", "kn-IN", "ml-IN", "mr-IN", "or-IN",
+    "pa-IN", "sl-SI", "ta-IN", "te-IN", "ur-PK",
+)
+
+# Весь список App Store. По нему же проверяет fastlane: имя папки не из этого
+# списка он отвергает, и отвергает весь прогон целиком.
+STORE_LOCALES = {locale.lower(): locale
+                 for locale in list(CANONICAL_LOCALES.values()) + list(EXTRA_STORE_LOCALES)}
+
+# Как папки называют люди. `en-UK` — самая частая: Великобритания в App Store
+# это `en-GB`, а `UK` просится само. Живой случай: FamilyTree 20, 7 октября —
+# папку переименовали из `ENG` в `en-UK`, и прогон упал уже на заливке
+# карточки, утащив за собой метаданные, которые к скриншотам отношения не
+# имеют.
+FOLDER_ALIASES = {
+    "en-uk": "en-GB",
+    "en_gb": "en-GB",
+    "en_us": "en-US",
+    "uk-ua": "uk",
+    "zh-cn": "zh-Hans",
+    "zh-tw": "zh-Hant",
+    "pt-br": "pt-BR",
+}
+
+
 def locales_for_folder(name):
     """То же, что locales_for_name, но для имени папки в архиве скриншотов.
 
@@ -563,11 +591,25 @@ def locales_for_folder(name):
     приводим к каноническому виду. Разбор ASO-таблицы этим НЕ пользуется
     намеренно: там `locales_for_name` смотрит на содержимое ячеек, и ячейка со
     словом `NO` («нет») не должна вдруг стать норвежским.
+
+    **Имя, похожее на локаль, но не существующее, сюда не проходит.** Раньше
+    любое `xx-YY` принималось на веру, папка раскладывалась под этим именем, и
+    прогон падал позже — на заливке карточки, где fastlane сверяет имена со
+    своим списком. Теперь неизвестное имя отсеивается здесь же и попадает в
+    предупреждение «папка не опознана как локаль», а остальное заливается.
     """
-    canonical = CANONICAL_LOCALES.get(name.strip().lower())
+    key = name.strip().lower()
+
+    alias = FOLDER_ALIASES.get(key)
+    if alias:
+        return [alias]
+
+    canonical = STORE_LOCALES.get(key)
     if canonical:
         return [canonical]
-    return locales_for_name(name)
+
+    return [locale for locale in locales_for_name(name)
+            if locale.lower() in STORE_LOCALES]
 
 
 def column_index(cell_reference):
