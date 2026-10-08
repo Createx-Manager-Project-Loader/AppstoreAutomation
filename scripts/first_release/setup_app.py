@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -40,6 +41,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
+from currency import CurrencyError, currency_of, territory_of as base_territory  # noqa: E402
 from build_metadata import dig, value_of  # noqa: E402
 from upload_screenshots_api import (  # noqa: E402
     AppStoreConnectClient,
@@ -226,8 +228,12 @@ class Setup:
 
         tier = self.field("pricing.tier", required=False)
         if tier:
-            out.append(Step("цена", str(tier).strip().lower(),
-                            self.set_price, self.get_price, self.filled_price))
+            try:
+                currency, want = self.wanted_price(tier)
+                self.currency = currency
+                out.append(Step("цена", want, self.set_price, self.get_price, self.filled_price))
+            except (CurrencyError, ValueError) as error:
+                self.skipped.append(f"pricing.tier: {error}")
 
         countries = self.field("pricing.countries", required=False)
         if countries:
@@ -324,10 +330,26 @@ class Setup:
 
     # цена ─────────────────────────────────────────────────────────────────
 
+    def wanted_price(self, tier) -> tuple[str, str]:
+        """Валюта и цена так, как её читает обратно get_price: «free» или «4.99».
+
+        Валюта — из pricing.currency, иначе из самой цены («4.99 EUR»), иначе
+        доллары. Сверять «4.99 EUR» со «4.99» из стора значило бы вечное «не
+        встало».
+        """
+        text = str(tier).strip().lower()
+        if text == "free":
+            return "USD", "free"
+        explicit, _ = value_of(self.listing, "pricing.currency")
+        currency = currency_of(tier, explicit)
+        number = float(re.sub(r"[^\d.,]", "", text).replace(",", "."))
+        return currency, "free" if number == 0 else f"{number:g}"
+
     def price_point(self, price: str) -> str:
-        """Идентификатор ценовой точки в базовой территории (USA)."""
+        """Идентификатор ценовой точки в базовой стране валюты."""
+        country = base_territory(getattr(self, "currency", "USD"))
         points = self.client.get_all(
-            f"/apps/{self.app_id}/appPricePoints?filter[territory]=USA&limit=200")
+            f"/apps/{self.app_id}/appPricePoints?filter[territory]={country}&limit=200")
         if not points:
             raise Problem("ASC не отдал ни одной ценовой точки — нет договора Paid Apps?")
         wanted = 0.0 if price == "free" else float(str(price).lstrip("$").replace(",", "."))
@@ -344,7 +366,8 @@ class Setup:
                 "type": "appPriceSchedules",
                 "relationships": {
                     "app": {"data": {"type": "apps", "id": self.app_id}},
-                    "baseTerritory": {"data": {"type": "territories", "id": "USA"}},
+                    "baseTerritory": {"data": {"type": "territories",
+                                               "id": base_territory(getattr(self, "currency", "USD"))}},
                     "manualPrices": {"data": [{"type": "appPrices", "id": "${new-price}"}]},
                 },
             },

@@ -40,6 +40,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from build_metadata import dig, value_of  # noqa: E402
+from currency import CurrencyError, currency_of, territory_of as base_territory  # noqa: E402
 from setup_app import Problem, read_back, short_error, Step  # noqa: E402
 from upload_screenshots_api import (  # noqa: E402
     AppStoreConnectClient,
@@ -234,10 +235,11 @@ class Subscriptions:
 
     # ── цены ──────────────────────────────────────────────────────────────
 
-    def price_points(self, sub_id: str, price: float) -> list[str]:
-        """Базовая точка в USA плюс её пересчёт на остальные страны."""
+    def price_points(self, sub_id: str, price: float, currency: str = "USD") -> list[str]:
+        """Базовая точка в стране валюты плюс её пересчёт на остальные страны."""
+        base_country = base_territory(currency)
         points = self.client.get_all(
-            f"/subscriptions/{sub_id}/pricePoints?filter[territory]=USA&limit=200")
+            f"/subscriptions/{sub_id}/pricePoints?filter[territory]={base_country}&limit=200")
         base = None
         for point in points:
             if abs(float(point["attributes"]["customerPrice"]) - price) < 0.0001:
@@ -246,20 +248,20 @@ class Subscriptions:
         if base is None:
             near = sorted({float(p["attributes"]["customerPrice"]) for p in points},
                           key=lambda x: abs(x - price))[:6]
-            raise Problem(f"нет ценовой точки {price}; ближайшие: {sorted(near)}")
+            raise Problem(f"нет ценовой точки {price} {currency}; ближайшие: {sorted(near)}")
 
         equalized = self.client.get_all(
             f"/subscriptionPricePoints/{base['id']}/equalizations?limit=200")
         return [base["id"]] + [p["id"] for p in equalized]
 
-    def set_prices(self, sub_id: str, price: float) -> int:
+    def set_prices(self, sub_id: str, price: float, currency: str = "USD") -> int:
         have = {
             row["relationships"]["territory"]["data"]["id"]
             for row in self.client.request(
                 "GET", f"/subscriptions/{sub_id}/prices?limit=200&include=territory"
             ).get("data", [])
         }
-        wanted = self.price_points(sub_id, price)
+        wanted = self.price_points(sub_id, price, currency)
         if have and len(have) >= len(wanted):
             return len(have)
 
@@ -347,7 +349,7 @@ class Subscriptions:
         sub_id = self.product(group_id, product, notes)
         self.localization(sub_id, product)
         codes = self.availability(sub_id)
-        placed = self.set_prices(sub_id, product["price"])
+        placed = self.set_prices(sub_id, product["price"], product.get("currency", "USD"))
         shot = self.screenshot(sub_id, product["product_id"])
         print(f"    страны: {len(codes)}, цены: {placed}, кадр для ревью: "
               f"{'есть' if shot else 'НЕТ'}")
@@ -410,8 +412,9 @@ def products_from(listing: dict) -> tuple[list[dict], list[str]]:
 
         try:
             price = price_of(values["price"])
+            currency = currency_of(values["price"], value_of(item, "currency")[0])
             period = period_of(duration)
-        except (ValueError, Problem) as error:
+        except (ValueError, Problem, CurrencyError) as error:
             skipped.append(f"продукт {name}: {error}")
             continue
 
@@ -421,6 +424,7 @@ def products_from(listing: dict) -> tuple[list[dict], list[str]]:
             "description": values["description"],
             "period": period,
             "price": price,
+            "currency": currency,
         })
     return out, skipped
 
@@ -476,7 +480,7 @@ def main() -> int:
 
         for product in products:
             print(f"  продукт {product['product_id']} ({product['period']}, "
-                  f"{product['price']})")
+                  f"{product['price']} {product.get('currency', 'USD')})")
             try:
                 sub_id = (setup.apply(group_id, product, notes) if not args.verify
                           else find_subscription(setup, group_id, product["product_id"]))

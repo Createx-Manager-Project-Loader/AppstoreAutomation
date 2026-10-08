@@ -29,7 +29,7 @@ def run(fail):
     s = Subscriptions.__new__(Subscriptions)
     s.client = Client(fail)
     points = [f"p{i}" for i in range(10)]
-    s.price_points = lambda sub_id, price: points
+    s.price_points = lambda sub_id, price, currency="USD": points
     subs.territory_of = lambda pid: pid
     try:
         return s.set_prices("sub", 6.99), s.client.posted
