@@ -78,6 +78,7 @@ AGE_LEVEL = (
 )
 # Не вопросы анкеты, но атрибуты того же ресурса — пропускаем как есть.
 AGE_EXTRA = ("kidsAgeBand", "ageRatingOverride", "ageRatingOverrideV2",
+             "gracRatingClassificationNumber",
              "koreaAgeRatingOverride", "developerAgeRatingInfoUrl")
 LEVELS = ("NONE", "INFREQUENT_OR_MILD", "FREQUENT_OR_INTENSE")
 
