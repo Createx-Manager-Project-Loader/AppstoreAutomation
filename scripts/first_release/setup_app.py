@@ -57,6 +57,65 @@ CONTENT_RIGHTS = {
 }
 
 
+# Вопросы анкеты рейтинга именами Apple (AgeRatingDeclaration.Attributes,
+# §6 канона кита). Ключ не из списка Apple не пропускает молча, а
+# отвергает весь PATCH с 409 ENTITY_ERROR.ATTRIBUTE.UNKNOWN — и анкета не
+# встаёт целиком. Так было на CarPlay2: разработчик вписал в answers строку
+# «In-app AI chatbot / generated content» и «notes».
+AGE_BOOL = (
+    "advertising", "gambling", "lootBox", "messagingAndChat",
+    "userGeneratedContent", "socialMedia", "socialMediaAgeRestricted",
+    "unrestrictedWebAccess", "parentalControls", "healthOrWellnessTopics",
+    "ageAssurance",
+)
+AGE_LEVEL = (
+    "violenceCartoonOrFantasy", "violenceRealistic",
+    "violenceRealisticProlongedGraphicOrSadistic", "sexualContentOrNudity",
+    "sexualContentGraphicAndNudity", "matureOrSuggestiveThemes",
+    "horrorOrFearThemes", "profanityOrCrudeHumor",
+    "alcoholTobaccoOrDrugUseOrReferences", "gamblingSimulated",
+    "gunsOrOtherWeapons", "contests", "medicalOrTreatmentInformation",
+)
+# Не вопросы анкеты, но атрибуты того же ресурса — пропускаем как есть.
+AGE_EXTRA = ("kidsAgeBand", "ageRatingOverride", "ageRatingOverrideV2",
+             "koreaAgeRatingOverride", "developerAgeRatingInfoUrl")
+LEVELS = ("NONE", "INFREQUENT_OR_MILD", "FREQUENT_OR_INTENSE")
+
+
+def clean_answers(answers: dict) -> tuple[dict, list[str]]:
+    """Ответы, которые Apple примет, и список того, что отброшено и почему."""
+    clean, notes, dropped = {}, [], []
+    for key, value in answers.items():
+        if key in AGE_BOOL:
+            text = str(value).strip().lower()
+            if isinstance(value, bool):
+                clean[key] = value
+            elif text in ("yes", "true"):
+                clean[key] = True
+            elif text in ("no", "false"):
+                clean[key] = False
+            else:
+                notes.append(f"«{key}»: ответ «{value}» — нужно да или нет")
+        elif key in AGE_LEVEL:
+            text = str(value).strip().upper()
+            if text in LEVELS:
+                clean[key] = text
+            else:
+                notes.append(f"«{key}»: ответ «{value}» — нужно NONE, "
+                             "INFREQUENT_OR_MILD или FREQUENT_OR_INTENSE")
+        elif key in AGE_EXTRA:
+            clean[key] = value
+        else:
+            dropped.append(key)
+    if dropped:
+        notes.append("не вопросы Apple, отброшены: " + ", ".join(f"«{k}»" for k in dropped))
+    missing = [k for k in AGE_BOOL + AGE_LEVEL if k not in clean]
+    if missing:
+        notes.append(f"без ответа {len(missing)} из {len(AGE_BOOL) + len(AGE_LEVEL)}: "
+                     + ", ".join(missing))
+    return clean, notes
+
+
 class Problem(Exception):
     pass
 
@@ -148,9 +207,13 @@ class Setup:
         elif status in ("guessed", "unanswered"):
             self.skipped.append(f"age_rating: статус {status} — рейтинг не уезжает догадкой")
         else:
-            out.append(Step("возрастной рейтинг", answers,
-                            self.set_age_rating, self.get_age_rating,
-                            self.filled_age_rating))
+            clean, notes = clean_answers(answers)
+            for note in notes:
+                self.skipped.append(f"age_rating: {note}")
+            if clean:
+                out.append(Step("возрастной рейтинг", clean,
+                                self.set_age_rating, self.get_age_rating,
+                                self.filled_age_rating))
 
         review = self.wanted_review()
         if review:

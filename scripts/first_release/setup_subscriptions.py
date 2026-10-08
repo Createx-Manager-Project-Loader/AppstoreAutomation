@@ -28,6 +28,7 @@ import argparse
 import hashlib
 import re
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -57,9 +58,15 @@ PERIODS = {
     "1 year": "ONE_YEAR",
 }
 
-# Сколько цен ставим за раз. Больше упирается в 429 от ASC, меньше — долго:
-# 175 стран по одной уходят в три минуты.
-PRICE_WORKERS = 6
+# Сколько цен ставим за раз. Шесть потоков на CarPlay2 (8 октября 2026)
+# выбрали лимит Apple на втором продукте: 429 пачкой, пять повторов
+# клиента не помогли, и месячная подписка осталась без цен. Три потока —
+# около минуты на продукт, и недобранное добирается вторым, медленным кругом.
+PRICE_WORKERS = 3
+
+# Круги добора цен после 429: пауза растёт, потоков нет вовсе.
+PRICE_RETRY_ROUNDS = 4
+PRICE_RETRY_PAUSE = 20
 
 
 def price_of(text) -> float:
@@ -269,8 +276,33 @@ class Subscriptions:
         # Территории, где цена уже есть, ASC второй раз не принимает, поэтому
         # ставим только недостающие — иначе повторный прогон падает пачкой 409.
         todo = [pid for pid in wanted if territory_of(pid) not in have]
+
+        def attempt(point_id: str) -> str | None:
+            """None — цена встала. Иначе id точки, которую надо добрать."""
+            try:
+                put(point_id)
+                return None
+            except AppStoreConnectError as error:
+                if "429" not in str(error):
+                    raise
+                return point_id
+
         with ThreadPoolExecutor(max_workers=PRICE_WORKERS) as pool:
-            list(pool.map(put, todo))
+            left = [pid for pid in pool.map(attempt, todo) if pid]
+
+        # Лимит Apple — минутный: переждали и добираем по одной.
+        for round_no in range(1, PRICE_RETRY_ROUNDS + 1):
+            if not left:
+                break
+            pause = PRICE_RETRY_PAUSE * round_no
+            print(f"    Apple притормозил запросы: {len(left)} цен добираем "
+                  f"через {pause} с (круг {round_no}/{PRICE_RETRY_ROUNDS})", flush=True)
+            time.sleep(pause)
+            left = [pid for pid in left if attempt(pid)]
+
+        if left:
+            raise Problem(f"Apple не дал поставить цены в {len(left)} странах "
+                          "(слишком много запросов) — перезапустите заливку позже")
         return len(have) + len(todo)
 
     # ── скриншот для ревью ────────────────────────────────────────────────
