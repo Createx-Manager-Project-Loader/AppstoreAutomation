@@ -76,6 +76,18 @@ CATEGORIES = {
     "weather": "WEATHER",
 }
 
+# Пределы Apple в знаках. Те же числа у консоли (lib/listing-edit.ts):
+# там ПМ не сохранит лишнее, а здесь не уезжает то, что пришло в файле
+# длиннее. Без этой проверки одно описание на 4100 знаков роняет весь вызов
+# deliver — вместе с названием и скриншотами, у которых всё в порядке.
+LIMITS = {
+    "app_information.name": 30,
+    "app_information.subtitle": 30,
+    "version.description": 4000,
+    "version.keywords": 100,
+    "version.promotional_text": 170,
+}
+
 CATEGORY_FIELDS = {"app_information.primary_category", "app_information.secondary_category"}
 
 
@@ -184,6 +196,14 @@ def build(listing: dict, out_dir: Path) -> dict:
         text, why = value_of(listing, path)
         if text is None:
             skipped.append(f"{path}: {why}")
+            return None
+        if path == "version.keywords":
+            # Пробел после запятой Apple принимает, но он съедает лимит.
+            text = re.sub(r"\s*,\s*", ",", text.strip())
+        limit = LIMITS.get(path)
+        if limit and len(text.strip()) > limit:
+            skipped.append(f"{path}: длиннее {limit} знаков ({len(text.strip())}) — Apple не примет")
+            return None
         return text
 
     for path, name in {**VERSION_FIELDS, **APP_FIELDS}.items():

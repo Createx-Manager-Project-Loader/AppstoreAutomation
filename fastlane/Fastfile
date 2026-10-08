@@ -1,5 +1,7 @@
 default_platform(:ios)
 
+require File.expand_path("deliver_patches", __dir__)
+
 def repo_root
   File.expand_path("../..", __dir__)
 end

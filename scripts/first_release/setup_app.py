@@ -51,6 +51,9 @@ from upload_screenshots_api import (  # noqa: E402
 CONTENT_RIGHTS = {
     "no_third_party_content": "DOES_NOT_USE_THIRD_PARTY_CONTENT",
     "third_party_content": "USES_THIRD_PARTY_CONTENT",
+    # Так же пишет скилл в части листингов (Family Tree 15) — смысл тот же.
+    "does_not_use_third_party_content": "DOES_NOT_USE_THIRD_PARTY_CONTENT",
+    "uses_third_party_content": "USES_THIRD_PARTY_CONTENT",
 }
 
 
