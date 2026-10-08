@@ -719,6 +719,9 @@ def main() -> int:
                 warnings.append(step.name)
             else:
                 print(f"  НЕТ {step.name}: {error}", file=sys.stderr)
+                # Строка-признак для консоли: причина одной строкой, её ПМ и
+                # увидит в разборе прогона вместо общего «не встало».
+                print(f"ПРИЧИНА {step.name}: {short_error(error)}", file=sys.stderr)
                 failures.append(step.name)
 
     if left:
@@ -734,13 +737,15 @@ def main() -> int:
         print(f"WARNING: не залилось (некритично): {', '.join(warnings)} — "
               "дозаполните в App Store Connect до отправки на ревью")
 
-    if failures:
-        print(f"ERROR: не встало: {', '.join(failures)}", file=sys.stderr)
-        return 1
+    # Пропуски печатаем и при падении: раньше их глотал ранний return, и
+    # о том, что из анкеты отброшены чужие ключи, ПМ не узнавал вовсе.
     if setup.skipped:
         print(f"\nПропущено: {len(setup.skipped)} — в стор не уедет, останется пустым:")
         for line in setup.skipped:
             print(f"  - {line}")
+    if failures:
+        print(f"ERROR: не встало: {', '.join(failures)}", file=sys.stderr)
+        return 1
 
     if not args.dry_run:
         written = len(steps) - len(left)

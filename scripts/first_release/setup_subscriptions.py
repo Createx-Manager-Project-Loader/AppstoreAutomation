@@ -40,7 +40,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from build_metadata import dig, value_of  # noqa: E402
-from setup_app import Problem, read_back, Step  # noqa: E402
+from setup_app import Problem, read_back, short_error, Step  # noqa: E402
 from upload_screenshots_api import (  # noqa: E402
     AppStoreConnectClient,
     AppStoreConnectError,
@@ -484,6 +484,8 @@ def main() -> int:
                 # Один сломанный продукт не отменяет остальные: у каждого свой
                 # id, своя цена и свой кадр — общего у них только группа.
                 print(f"    НЕ ЗАВЕДЁН: {error}", file=sys.stderr)
+                print(f"ПРИЧИНА подписка {product['product_id']}: {short_error(error)}",
+                      file=sys.stderr)
                 failures.append(f"{product['product_id']}: {str(error)[:80]}")
                 continue
             step = Step(product["product_id"], "READY_TO_SUBMIT",
