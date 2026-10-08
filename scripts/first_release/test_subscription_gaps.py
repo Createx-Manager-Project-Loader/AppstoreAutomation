@@ -35,6 +35,10 @@ def run(gap, shots=None):
         def __init__(self, client, app_id, listing, locale, shots_dir):
             self.shots = shots
             self.gaps = {}
+            self.soft = []
+
+        def grace_period(self):
+            return "уже включён"
 
         def group(self, name):
             return "g1"

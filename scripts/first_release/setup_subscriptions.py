@@ -70,6 +70,103 @@ PRICE_RETRY_ROUNDS = 4
 PRICE_RETRY_PAUSE = 20
 
 
+# Billing Grace Period — настройка всего приложения, не продукта. Значения —
+# как команда ставит руками (Артём Прищепов, 8 октября 2026): 28 дней, все
+# продления (и после пробного периода, и платные), прод и песочница. Схема —
+# SubscriptionGracePeriod в OpenAPI App Store Connect 4.5.1.
+GRACE_PERIOD = {
+    "optIn": True,
+    "sandboxOptIn": True,
+    "duration": "TWENTY_EIGHT_DAYS",
+    "renewalType": "ALL_RENEWALS",
+}
+
+# Длительность пробного периода → SubscriptionOfferDuration.
+TRIAL_PERIODS = {
+    "3 days": "THREE_DAYS",
+    "1 week": "ONE_WEEK", "7 days": "ONE_WEEK",
+    "2 weeks": "TWO_WEEKS", "14 days": "TWO_WEEKS",
+    "1 month": "ONE_MONTH",
+    "2 months": "TWO_MONTHS",
+    "3 months": "THREE_MONTHS",
+    "6 months": "SIX_MONTHS",
+    "1 year": "ONE_YEAR",
+}
+ISO_TRIALS = {"P3D": "THREE_DAYS", "P1W": "ONE_WEEK", "P7D": "ONE_WEEK",
+              "P2W": "TWO_WEEKS", "P14D": "TWO_WEEKS", "P1M": "ONE_MONTH",
+              "P2M": "TWO_MONTHS", "P3M": "THREE_MONTHS", "P6M": "SIX_MONTHS",
+              "P1Y": "ONE_YEAR"}
+
+
+def trial_of(text) -> str | None:
+    """Пробный период из листинга → enum Apple. None — пробного нет.
+
+    Скилл пишет его словами («3 days free») или как в .storekit («P3D»).
+    Заводим только бесплатный пробный: платное вводное предложение
+    (pay as you go, pay up front) требует ценовой точки и решения о цене —
+    оно остаётся руками, и об этом говорит ошибка.
+    """
+    if text is None:
+        return None
+    raw = str(text).strip()
+    if not raw or raw.lower() in ("none", "no", "нет", "null"):
+        return None
+    if raw.upper() in ISO_TRIALS:
+        return ISO_TRIALS[raw.upper()]
+    key = " ".join(raw.lower().replace("-", " ").split())
+    if not re.search(r"free|trial|бесплат|пробн", key) and not re.fullmatch(r"\d+ \w+", key):
+        raise Problem(f"вводное предложение «{raw}» не бесплатный пробный период — "
+                      "платное заводится руками в App Store Connect")
+    for words, enum in TRIAL_PERIODS.items():
+        number, unit = words.split()
+        if re.search(rf"\b{number}[ -]?{unit.rstrip('s')}s?\b", key):
+            return enum
+    raise Problem(f"длительность пробного периода «{raw}» не распознана; можно: "
+                  + ", ".join(TRIAL_PERIODS))
+
+
+def trial_fields(item: dict) -> dict:
+    """Пробный период продукта. Нераспознанный не отменяет продукт: подписка
+    заводится, а пробный период уходит в предупреждение с причиной."""
+    try:
+        return {"trial": trial_of(value_of(item, "introductory_offer")[0]), "trial_note": None}
+    except Problem as error:
+        return {"trial": None, "trial_note": str(error)}
+
+
+def post_all(items: list, send, what: str) -> None:
+    """Пачка однотипных POST с добором после 429.
+
+    Сначала в PRICE_WORKERS потоков, затем недобранное — по одному, с
+    растущей паузой: лимит Apple минутный. Общий для цен и пробного периода
+    по странам — оба упираются в один и тот же лимит.
+    """
+    def attempt(item) -> object | None:
+        try:
+            send(item)
+            return None
+        except AppStoreConnectError as error:
+            if "429" not in str(error):
+                raise
+            return item
+
+    with ThreadPoolExecutor(max_workers=PRICE_WORKERS) as pool:
+        left = [item for item in pool.map(attempt, items) if item is not None]
+
+    for round_no in range(1, PRICE_RETRY_ROUNDS + 1):
+        if not left:
+            break
+        pause = PRICE_RETRY_PAUSE * round_no
+        print(f"    Apple притормозил запросы: {len(left)} ({what}) добираем "
+              f"через {pause} с (круг {round_no}/{PRICE_RETRY_ROUNDS})", flush=True)
+        time.sleep(pause)
+        left = [item for item in left if attempt(item) is not None]
+
+    if left:
+        raise Problem(f"Apple не дал поставить {what} в {len(left)} странах "
+                      "(слишком много запросов) — перезапустите заливку позже")
+
+
 def price_of(text) -> float:
     """Цена числом. Файл листинга пишет её по-разному, Apple ждёт число.
 
@@ -108,6 +205,9 @@ class Subscriptions:
         self.locale = locale
         self.shots = shots
         self.gaps: dict[str, dict] = {}
+        # Некритичное, что не встало: grace period, пробный период. Продукт
+        # без них всё равно уходит на ревью — это предупреждение, не сбой.
+        self.soft: list[str] = []
 
     def maybe(self, path: str):
         """GET, который отвечает None вместо исключения на 404.
@@ -279,32 +379,7 @@ class Subscriptions:
         # ставим только недостающие — иначе повторный прогон падает пачкой 409.
         todo = [pid for pid in wanted if territory_of(pid) not in have]
 
-        def attempt(point_id: str) -> str | None:
-            """None — цена встала. Иначе id точки, которую надо добрать."""
-            try:
-                put(point_id)
-                return None
-            except AppStoreConnectError as error:
-                if "429" not in str(error):
-                    raise
-                return point_id
-
-        with ThreadPoolExecutor(max_workers=PRICE_WORKERS) as pool:
-            left = [pid for pid in pool.map(attempt, todo) if pid]
-
-        # Лимит Apple — минутный: переждали и добираем по одной.
-        for round_no in range(1, PRICE_RETRY_ROUNDS + 1):
-            if not left:
-                break
-            pause = PRICE_RETRY_PAUSE * round_no
-            print(f"    Apple притормозил запросы: {len(left)} цен добираем "
-                  f"через {pause} с (круг {round_no}/{PRICE_RETRY_ROUNDS})", flush=True)
-            time.sleep(pause)
-            left = [pid for pid in left if attempt(pid)]
-
-        if left:
-            raise Problem(f"Apple не дал поставить цены в {len(left)} странах "
-                          "(слишком много запросов) — перезапустите заливку позже")
+        post_all(todo, put, "цены")
         return len(have) + len(todo)
 
     # ── скриншот для ревью ────────────────────────────────────────────────
@@ -345,6 +420,51 @@ class Subscriptions:
 
     # ── один продукт целиком ──────────────────────────────────────────────
 
+    # ── пробный период и grace period ─────────────────────────────────────
+
+    def trial(self, sub_id: str, duration: str, codes: list[str]) -> str:
+        """Бесплатный пробный период продукта. Уже есть — не трогаем.
+
+        Страна в схеме Apple необязательна: сначала пробуем одним вызовом на
+        все страны. Если Apple потребует страну — заводим по каждой, где
+        продукт продаётся, тем же медленным порядком, что и цены.
+        """
+        existing = self.client.get_all(f"/subscriptions/{sub_id}/introductoryOffers?limit=200")
+        if existing:
+            return f"уже есть ({len(existing)})"
+
+        def body(territory: str | None = None) -> dict:
+            relationships = {"subscription": {"data": {"type": "subscriptions", "id": sub_id}}}
+            if territory:
+                relationships["territory"] = {"data": {"type": "territories", "id": territory}}
+            return {"data": {
+                "type": "subscriptionIntroductoryOffers",
+                "attributes": {"duration": duration, "offerMode": "FREE_TRIAL",
+                               "numberOfPeriods": 1, "startDate": None, "endDate": None},
+                "relationships": relationships,
+            }}
+
+        try:
+            self.client.request("POST", "/subscriptionIntroductoryOffers", json=body())
+            return "заведён на все страны"
+        except AppStoreConnectError as error:
+            if "territor" not in str(error).lower():
+                raise
+        post_all(codes, lambda code: self.client.request(
+            "POST", "/subscriptionIntroductoryOffers", json=body(code)), "пробный период")
+        return f"заведён в {len(codes)} странах"
+
+    def grace_period(self) -> str:
+        """Billing Grace Period приложения — по значениям команды."""
+        payload = self.client.request("GET", f"/apps/{self.app_id}/subscriptionGracePeriod")
+        current = payload["data"]
+        if all(current.get("attributes", {}).get(k) == v for k, v in GRACE_PERIOD.items()):
+            return "уже включён"
+        self.client.request("PATCH", f"/subscriptionGracePeriods/{current['id']}", json={
+            "data": {"type": "subscriptionGracePeriods", "id": current["id"],
+                     "attributes": GRACE_PERIOD}})
+        return "включён: 28 дней, все продления, прод и песочница"
+
     def apply(self, group_id: str, product: dict, notes: str | None) -> str:
         sub_id = self.product(group_id, product, notes)
         self.localization(sub_id, product)
@@ -353,6 +473,19 @@ class Subscriptions:
         shot = self.screenshot(sub_id, product["product_id"])
         print(f"    страны: {len(codes)}, цены: {placed}, кадр для ревью: "
               f"{'есть' if shot else 'НЕТ'}")
+        if product.get("trial_note"):
+            print(f"  ПРЕДУПРЕЖДЕНИЕ пробный период {product['product_id']}: "
+                  f"не залилось — {product['trial_note']}", file=sys.stderr)
+            self.soft.append(f"пробный период {product['product_id']}")
+        if product.get("trial"):
+            # Пробный период не держит продукт: без него подписка всё равно
+            # уходит на ревью, поэтому сбой здесь — предупреждение.
+            try:
+                print(f"    пробный период: {self.trial(sub_id, product['trial'], codes)}")
+            except (Problem, AppStoreConnectError) as error:
+                print(f"  ПРЕДУПРЕЖДЕНИЕ пробный период {product['product_id']}: "
+                      f"не залилось — {short_error(error)}", file=sys.stderr)
+                self.soft.append(f"пробный период {product['product_id']}")
         # Запоминаем, чего не хватило: если продукт застрянет в
         # MISSING_METADATA только из-за кадра, это не сбой, а пробел в данных.
         self.gaps[sub_id] = {
@@ -425,6 +558,7 @@ def products_from(listing: dict) -> tuple[list[dict], list[str]]:
             "period": period,
             "price": price,
             "currency": currency,
+            **trial_fields(item),
         })
     return out, skipped
 
@@ -477,6 +611,13 @@ def main() -> int:
         group_id = setup.group(group_name)
         setup.group_localization(group_id, group_name)
         print(f"  группа «{group_name}»: {group_id}")
+        if not args.verify:
+            try:
+                print(f"  grace period: {setup.grace_period()}")
+            except (Problem, AppStoreConnectError) as error:
+                print(f"  ПРЕДУПРЕЖДЕНИЕ grace period: не залилось — {short_error(error)}",
+                      file=sys.stderr)
+                setup.soft.append("grace period")
 
         for product in products:
             print(f"  продукт {product['product_id']} ({product['period']}, "
@@ -510,6 +651,10 @@ def main() -> int:
     except (Problem, AppStoreConnectError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
+
+    if setup.soft:
+        print(f"WARNING: не залилось (некритично): {', '.join(setup.soft)} — "
+              "включите в App Store Connect руками")
 
     if warnings:
         print("WARNING: не залилось (некритично): кадр для ревью подписки — "
