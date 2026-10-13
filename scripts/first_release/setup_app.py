@@ -441,21 +441,27 @@ class Setup:
 
     def set_countries(self, want) -> None:
         codes = self.wanted_territories(want)
-        known = {t["id"] for t in self.client.get_all("/territories?limit=200")}
+        territories = [t["id"] for t in self.client.get_all("/territories?limit=200")]
+        known = set(territories)
         unknown = [c for c in codes if c not in known]
         if unknown:
             raise Problem(f"неизвестные коды стран: {unknown} (нужен ISO-3, например DEU)")
 
         current = self.territory_rows()
         if not current:
-            # У приложения ещё нет доступности — её создают целиком.
+            # У приложения ещё нет доступности — её создают целиком, и Apple
+            # ждёт в запросе все страны мира, каждую с «продаём / не продаём».
+            # Раньше слали только нужные: worldwide это и есть все, поэтому
+            # проходило (Pulse 3, 201), а одна страна — 409 «ждём территорию
+            # MMR, UZB, …» по остальным 174 (Draw Figures 1, MNE, 13 октября).
+            wanted = set(codes)
             included, refs = [], []
-            for code in codes:
+            for code in territories:
                 key = f"${{t-{code}}}"
                 refs.append({"type": "territoryAvailabilities", "id": key})
                 included.append({
                     "type": "territoryAvailabilities", "id": key,
-                    "attributes": {"available": True},
+                    "attributes": {"available": code in wanted},
                     "relationships": {"territory": {"data": {"type": "territories", "id": code}}},
                 })
             self.client.request(

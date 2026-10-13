@@ -57,6 +57,8 @@ def main():
 
         def request(self, method, path, json=None):
             self.calls.append(method)
+            if method == "POST":
+                self.posted = json
             if method == "GET" and "territoryAvailabilities" in path:
                 raise AppStoreConnectError(f"GET {path} failed with 404: no appAvailabilities")
             return {"data": {}}
@@ -67,6 +69,23 @@ def main():
     ok &= check("404 на чтении доступности — это пусто", fresh.territory_rows() == {})
     fresh.set_countries("worldwide")
     ok &= check("у нового приложения доступность создаётся POST", "POST" in fresh.client.calls)
+    sent = {i["relationships"]["territory"]["data"]["id"]: i["attributes"]["available"] for i in fresh.client.posted["included"]}
+    ok &= check("worldwide: все страны, все «продаём»", sent == {"USA": True, "DEU": True})
+    ok &= check("worldwide: новые страны тоже включаются",
+                fresh.client.posted["data"]["attributes"]["availableInNewTerritories"] is True)
+
+    # Одна страна: Apple всё равно ждёт весь мир, ненужные — «не продаём».
+    # Draw Figures 1 (MNE) упал на 409, когда слали только выбранные.
+    one = Setup.__new__(Setup)
+    one.client = Fresh()
+    one.app_id = "1"
+    one.set_countries("DEU")
+    sent = {i["relationships"]["territory"]["data"]["id"]: i["attributes"]["available"] for i in one.client.posted["included"]}
+    refs = {r["id"] for r in one.client.posted["data"]["relationships"]["territoryAvailabilities"]["data"]}
+    ok &= check("одна страна: в запросе весь мир", sent == {"USA": False, "DEU": True})
+    ok &= check("одна страна: каждая строка запроса связана с доступностью", refs == {i["id"] for i in one.client.posted["included"]})
+    ok &= check("одна страна: новые страны не включаются",
+                one.client.posted["data"]["attributes"]["availableInNewTerritories"] is False)
 
     for raw in ("worldwide", "Worldwide", " WORLDWIDE "):
         got = setup.wanted_territories(raw)
