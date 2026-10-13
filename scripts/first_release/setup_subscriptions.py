@@ -196,6 +196,32 @@ def period_of(text: str) -> str:
         f"длительность «{text}» не совпала ни с одной из: {', '.join(PERIODS)}")
 
 
+def pick_group(groups: list[dict], name: str, product_ids: list[str]) -> tuple[str | None, str | None]:
+    """Какой группой работать: (id группы или None — искать/создавать по имени, заметка).
+
+    groups — [{"id", "name", "products": [product id, …]}] из App Store Connect.
+    Если продукты из листинга уже лежат в группе, работаем с ней, а не с именем
+    из листинга: иначе заводится пустая группа рядом, а у настоящей так и не
+    появляется название для показа — и подписки висят в MISSING_METADATA
+    (Pulse 3, 12 октября: продукты в «PRO», листинг звал группу «premium»).
+    Продукты в разных группах свести сами не можем — переносить подписки
+    между группами API не даёт, это делается в App Store Connect руками.
+    """
+    where = {pid: g for g in groups for pid in g["products"] if pid in product_ids}
+    homes = {g["id"]: g for g in where.values()}
+    if len(homes) > 1:
+        parts = "; ".join(f"{pid} в «{g['name']}»" for pid, g in where.items())
+        raise Problem(f"подписки лежат в разных группах ({parts}). Сведите их в одну группу "
+                      "в App Store Connect и запустите заливку снова")
+    if homes:
+        home = next(iter(homes.values()))
+        note = None if home["name"] == name else (
+            f"подписки уже в группе «{home['name']}» — работаем с ней; "
+            f"имя «{name}» из листинга не применяем, пустую группу не заводим")
+        return home["id"], note
+    return None, None
+
+
 class Subscriptions:
     def __init__(self, client: AppStoreConnectClient, app_id: str, listing: dict,
                  locale: str, shots: Path | None) -> None:
@@ -236,6 +262,18 @@ class Subscriptions:
             "attributes": {"referenceName": name},
             "relationships": {"app": {"data": {"type": "apps", "id": self.app_id}}}}})
         return created["data"]["id"]
+
+    def resolve_group(self, name: str, product_ids: list[str]) -> str:
+        """Группа, где уже лежат продукты из листинга, а если их нет нигде — по имени."""
+        groups = [{"id": g["id"], "name": g["attributes"].get("referenceName"),
+                   "products": [s["attributes"].get("productId") for s in self.client.get_all(
+                       f"/subscriptionGroups/{g['id']}/subscriptions?limit=100")]}
+                  for g in self.client.get_all(f"/apps/{self.app_id}/subscriptionGroups?limit=50")]
+        group_id, note = pick_group(groups, name, product_ids)
+        if note:
+            print(f"  {note}")
+            print(f"NOTE: {note}")
+        return group_id or self.group(name)
 
     def group_localization(self, group_id: str, name: str) -> None:
         for existing in self.client.get_all(
@@ -608,7 +646,9 @@ def main() -> int:
 
     failures, warnings = [], []
     try:
-        group_id = setup.group(group_name)
+        group_id = setup.resolve_group(group_name, [p["product_id"] for p in products])
+        # Название для показа дописываем той группе, где продукты, если его нет
+        # для языка листинга. Уже заполненное не трогаем.
         setup.group_localization(group_id, group_name)
         print(f"  группа «{group_name}»: {group_id}")
         if not args.verify:
@@ -635,7 +675,9 @@ def main() -> int:
                 continue
             step = Step(product["product_id"], "READY_TO_SUBMIT",
                         lambda _want: None, lambda: setup.state(sub_id))
-            got, ok = read_back(step, attempts=1 if args.verify else 4)
+            # Кадр для ревью Apple обрабатывает не сразу, а пока не обработает,
+            # статус MISSING_METADATA. Ждём до двух минут, прежде чем звать это сбоем.
+            got, ok = read_back(step, attempts=1 if args.verify else 24, delay=5.0)
             print(f"    состояние: {got}")
             if not ok:
                 gap = setup.gaps.get(sub_id, {})

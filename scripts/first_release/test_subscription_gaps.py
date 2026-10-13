@@ -43,6 +43,9 @@ def run(gap, shots=None):
         def group(self, name):
             return "g1"
 
+        def resolve_group(self, name, product_ids):
+            return "g1"
+
         def group_localization(self, group_id, name):
             pass
 
@@ -61,7 +64,7 @@ def run(gap, shots=None):
     ss.AppStoreConnectClient = lambda **kw: None
     ss.find_app = lambda client, bundle: {"id": "1"}
     ss.require_env = lambda name: "x"
-    ss.read_back = lambda step, attempts=4: (step.read(), step.read() == step.want)
+    ss.read_back = lambda step, attempts=4, delay=3.0: (step.read(), step.read() == step.want)
     sys.argv = ["setup_subscriptions.py", "--listing", str(path)]
     out = io.StringIO()
     try:
