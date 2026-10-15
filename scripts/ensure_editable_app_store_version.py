@@ -33,8 +33,9 @@ def main() -> int:
         key_path=Path(require_env("ASC_KEY_PATH")),
     )
     app = find_app(client, require_env("APP_IDENTIFIER"))
+    info: dict = {}
     try:
-        version = ensure_editable_app_store_version(client, app["id"], auto_create=auto_create)
+        version = ensure_editable_app_store_version(client, app["id"], auto_create=auto_create, info=info)
     except AppStoreConnectError as error:
         from log import log_error
 
@@ -57,6 +58,8 @@ def main() -> int:
             "version_string": version_string,
             "app_store_state": version_state,
             "auto_create_enabled": auto_create,
+            "created": bool(info.get("created")),
+            "seeded_from": info.get("seeded_from"),
         },
     )
     log_step_done("Ensure editable App Store version", 0)

@@ -455,7 +455,15 @@ def find_best_seed_version(existing_versions: list[dict[str, Any]]) -> Optional[
     )
 
 
-def ensure_editable_app_store_version(client: AppStoreConnectClient, app_id: str, *, auto_create: bool = True) -> dict[str, Any]:
+def ensure_editable_app_store_version(
+    client: AppStoreConnectClient,
+    app_id: str,
+    *,
+    auto_create: bool = True,
+    info: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Редактируемая версия; нет — создаёт следующую. В info пишет, создана ли
+    версия и из какой скопированы тексты: дашборд показывает это в отчёте."""
     try:
         return find_editable_version(client, app_id)
     except AppStoreConnectError as error:
@@ -475,11 +483,15 @@ def ensure_editable_app_store_version(client: AppStoreConnectClient, app_id: str
     )
     created_version = create_app_store_version(client, app_id, next_version_string)
     created_version_id = created_version["id"]
+    if info is not None:
+        info["created"] = True
 
     seed_version = find_best_seed_version(existing_versions)
     if seed_version:
         seed_attrs = seed_version.get("attributes", {})
         seeded_count = seed_version_localizations(client, seed_version["id"], created_version_id)
+        if info is not None:
+            info["seeded_from"] = seed_attrs.get("versionString")
         print(
             "Seeded "
             f"{seeded_count} localization(s) from version "

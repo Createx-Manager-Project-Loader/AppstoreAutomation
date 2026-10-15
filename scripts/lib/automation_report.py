@@ -198,6 +198,15 @@ def print_final_report() -> int:
     if report.get("selection"):
         lines.append(f"  Selection: {report['selection']}")
 
+    # Версия в App Store Connect: дашборд показывает, создали ли мы новую.
+    asv = (report.get("sections") or {}).get("app_store_version") or {}
+    if asv.get("version_string"):
+        if asv.get("created"):
+            note = f"created from {asv['seeded_from']}" if asv.get("seeded_from") else "created"
+        else:
+            note = asv.get("app_store_state") or "existing"
+        lines.append(f"  Version:  {asv['version_string']} ({note})")
+
     if report.get("started_at"):
         lines.append(f"  Started:  {report['started_at']}")
     if report.get("finished_at"):
