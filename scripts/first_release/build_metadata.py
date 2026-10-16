@@ -172,6 +172,29 @@ def valid_phone(text: str) -> bool:
     return text.strip().startswith("+") and 7 <= len(digits) <= 15
 
 
+URL_FIELDS = ("version.support_url", "version.marketing_url")
+
+
+def url_problem(text: str) -> str | None:
+    """Почему Apple не примет ссылку на страницу. None — ссылка годится.
+
+    Apple проверяет только вид адреса и отвечает одним «The Support URL you
+    entered is invalid», уронив всю заливку. Ловим заранее самое частое:
+    почта вместо сайта (https://support@site.com), пробел, адрес без домена.
+    """
+    url = text.strip()
+    if " " in url:
+        return "в адресе пробел"
+    if not re.match(r"^https?://", url, re.I):
+        return "адрес должен начинаться с https://"
+    host = url.split("://", 1)[1].split("/", 1)[0]
+    if "@" in host:
+        return "похоже на почту, а нужен адрес страницы — например https://site.com/support"
+    if "." not in host.split(":")[0]:
+        return f"в адресе нет домена ({host or 'пусто'})"
+    return None
+
+
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text.rstrip("\n") + "\n", encoding="utf-8")
@@ -200,6 +223,11 @@ def build(listing: dict, out_dir: Path) -> dict:
         if path == "version.keywords":
             # Пробел после запятой Apple принимает, но он съедает лимит.
             text = re.sub(r"\s*,\s*", ",", text.strip())
+        if path in URL_FIELDS:
+            problem = url_problem(text)
+            if problem:
+                skipped.append(f"{path}: «{text.strip()}» — {problem}; Apple не примет")
+                return None
         limit = LIMITS.get(path)
         if limit and len(text.strip()) > limit:
             skipped.append(f"{path}: длиннее {limit} знаков ({len(text.strip())}) — Apple не примет")

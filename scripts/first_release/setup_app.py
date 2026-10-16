@@ -133,9 +133,13 @@ class Step:
     """
 
     def __init__(self, name: str, want: Any, apply, read, filled=None,
-                 soft: bool = False) -> None:
+                 soft: bool = False, blocked=None) -> None:
         self.name, self.want, self.apply, self.read = name, want, apply, read
         self.filled = filled
+        # Шаг, который сейчас сделать нельзя по объективной причине (экспортное
+        # соответствие до первой сборки): blocked() возвращает причину, и шаг
+        # откладывается — без ошибки, с пометкой «отложено» в отчёте.
+        self.blocked = blocked
         # Некритичный шаг: его неудача не красит прогон, а идёт в отчёт
         # предупреждением. Решение владельца — для информации для ревью: без
         # неё всё остальное в карточке полезно, а отправить на ревью с пустым
@@ -256,7 +260,8 @@ class Setup:
         export = self.field("declarations.export_compliance", required=False)
         if export:
             want = str(export).strip().lower() == "exempt"
-            out.append(Step("экспортное соответствие", want, self.set_export, self.get_export))
+            out.append(Step("экспортное соответствие", want, self.set_export, self.get_export,
+                            blocked=self.export_blocked))
 
         return out
 
@@ -591,6 +596,13 @@ class Setup:
         data = payload.get("data") or []
         return data[0] if data else None
 
+    def export_blocked(self) -> str | None:
+        """До первой сборки объявить нечего: это не ошибка, а «ещё рано»."""
+        if self.latest_build() is None:
+            return ("объявляется на сборке, а сборок у приложения ещё нет — "
+                    "после загрузки билда запустите первый релиз ещё раз")
+        return None
+
     def set_export(self, want: bool) -> None:
         build = self.latest_build()
         if build is None:
@@ -717,11 +729,17 @@ def main() -> int:
     overwrite = os.environ.get("FIRST_RELEASE_OVERWRITE", "").strip().lower() in (
         "yes", "true", "1")
 
-    failures, left, warnings = [], [], []
+    failures, left, warnings, deferred = [], [], [], []
     for step in steps:
         try:
             if args.dry_run:
                 print(f"  — {step.name}: поставил бы {short(step.want)}")
+                continue
+            reason = step.blocked() if step.blocked else None
+            if reason:
+                # Строка-признак для консоли: пометка «к сведению», не ошибка.
+                print(f"  ОТЛОЖЕНО {step.name}: {reason}")
+                deferred.append(step.name)
                 continue
             if not (args.verify or overwrite) and step.filled:
                 current = probe(step)
@@ -760,6 +778,9 @@ def main() -> int:
         for line in left:
             print(f"  - {line}")
         print("Чтобы залить поверх, поставьте галочку перезаписи в консоли.")
+
+    if deferred:
+        print(f"Отложено: {', '.join(deferred)} — сделается при следующем прогоне, когда станет можно")
 
     if warnings:
         # Строка-признак для консоли: по ней она показывает пометку «к

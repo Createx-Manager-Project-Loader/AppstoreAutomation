@@ -87,6 +87,23 @@ def main():
     ok &= check("в ошибке только страны, контакт — предупреждением",
                 "ERROR: не встало: страны" in text and "WARNING: не залилось" in text)
 
+    # Экспортное соответствие до первой сборки: «ещё рано», а не ошибка.
+    def never(_want):
+        raise AssertionError("отложенный шаг не должен выполняться")
+    code, text = run([
+        Step("экспортное соответствие", True, never, lambda: "нет сборки",
+             blocked=lambda: "сборок у приложения ещё нет"),
+        Step("цена", "free", lambda want: None, lambda: "free"),
+    ])
+    ok &= check("нет сборки — прогон зелёный", code == 0)
+    ok &= check("пометка «отложено» с причиной", "ОТЛОЖЕНО экспортное соответствие: сборок" in text)
+    ok &= check("ни ошибки, ни «ПРИЧИНА»", "ERROR: не встало" not in text and "ПРИЧИНА" not in text)
+
+    code, text = run([
+        Step("экспортное соответствие", True, lambda want: None, lambda: True, blocked=lambda: None),
+    ])
+    ok &= check("сборка есть — шаг выполняется как обычно", code == 0 and "ОТЛОЖЕНО" not in text)
+
     print("\nИтог:", "всё сходится" if ok else "есть расхождения")
     return 0 if ok else 1
 
