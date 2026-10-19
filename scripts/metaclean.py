@@ -21,6 +21,7 @@
 import os
 import time
 import unicodedata
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -191,7 +192,12 @@ def _clean_via_service(path: Path, label: str) -> Path:
             response = requests.post(
                 f"{base}/metaclean/api/delete-metadata/",
                 headers=headers,
-                files={"file": (path.name, handle)},
+                # Уникальное имя: у всех прогонов один логин и одна папка на сервисе,
+                # а файл с тем же именем сервис заменяет. Под общим
+                # «downloaded_screenshots.safe.zip» два одновременных прогона могли
+                # забрать архивы друг друга — внутри одинаковые 0001.jpg…, сверка
+                # состава этого не заметит.
+                files={"file": (f"{uuid.uuid4().hex[:8]}_{path.name}", handle)},
                 timeout=TIMEOUT_SECONDS,
             )
     except requests.RequestException as error:
@@ -227,6 +233,8 @@ def _clean_via_service(path: Path, label: str) -> Path:
         # Статусы сравниваются точно: «processing...» приходит с многоточием.
         if status == "error":
             _fail(f"service reported an error: {payload.get('error')}")
+        if status == "file deleted":
+            _fail(f"task {task_id}: the cleaned file was deleted on the service before download")
         time.sleep(POLL_SECONDS)
 
     result_url = payload.get("result_url")
@@ -262,4 +270,16 @@ def _clean_via_service(path: Path, label: str) -> Path:
             )
 
     cleaned.replace(path)
+    _forget_task(status_url, headers)
     return path
+
+
+def _forget_task(status_url: str, headers: dict) -> None:
+    """Удалить очищенный файл с сервиса: он скачан, а место там общее на всех.
+
+    Не вышло — не беда: сервис сам удаляет файлы через сутки.
+    """
+    try:
+        requests.delete(status_url, headers=headers, timeout=60)
+    except requests.RequestException:
+        pass
