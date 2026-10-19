@@ -649,22 +649,33 @@ def upload_screenshot(client: AppStoreConnectClient, set_id: str, image_path: Pa
     for operation in operations:
         client.upload_operation(operation, image_path)
 
-    client.request(
-        "PATCH",
-        f"/appScreenshots/{screenshot_id}",
-        json={
-            "data": {
-                "type": "appScreenshots",
-                "id": screenshot_id,
-                "attributes": {
-                    "uploaded": True,
-                    "sourceFileChecksum": checksum,
-                },
-            }
-        },
-    )
+    try:
+        client.request(
+            "PATCH",
+            f"/appScreenshots/{screenshot_id}",
+            json={
+                "data": {
+                    "type": "appScreenshots",
+                    "id": screenshot_id,
+                    "attributes": {
+                        "uploaded": True,
+                        "sourceFileChecksum": checksum,
+                    },
+                }
+            },
+        )
+    except AppStoreConnectError as error:
+        # Apple бывает отвечает 500 на коммит, хотя сам коммит прошёл; наш повтор
+        # тогда получает 409 «already Approved / can't be re-committed». Файл принят —
+        # дальше его состояние всё равно проверит wait_for_processing.
+        if not is_already_committed(str(error)):
+            raise
 
     return screenshot_id
+
+
+def is_already_committed(message: str) -> bool:
+    return " 409" in message and ("can't be re-committed" in message or "already Approved" in message)
 
 
 def order_screenshots(client: AppStoreConnectClient, set_id: str, screenshot_ids: list[str], dry_run: bool) -> None:
