@@ -109,7 +109,7 @@ def main():
                 all(name.isascii() for name in sent))
 
     target = work / "dots.restored.zip"
-    _restore_names(safe, target, names)
+    _restore_names([safe], target, names)
     ok &= check("после очистки имена исходные и читаемые",
                 zip_paths(target) == ["01 · Resemblance.jpg", "en-GB/Кадр 2.jpg"])
     with zipfile.ZipFile(target) as archive:
@@ -123,7 +123,7 @@ def main():
         for item in archive.infolist()[1:]:
             out.writestr(item.filename, archive.read(item))
     try:
-        _restore_names(broken, work / "never.zip", names)
+        _restore_names([broken], work / "never.zip", names)
         caught = False
     except SystemExit:
         caught = True

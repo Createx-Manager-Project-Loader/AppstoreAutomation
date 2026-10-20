@@ -112,11 +112,20 @@ def strip_metadata(path: Path, label: str = "archive") -> Path:
 
     safe = path.with_name(path.stem + ".safe.zip")
     names = _write_safe_copy(path, safe)
+    parts = [safe]
     try:
-        _clean_via_service(safe, label)
-        _restore_names(safe, path, names)
+        # Сервис берёт файл до 300 МБ, а архивы со скриншотами бывают больше
+        # (Locator 32, 20 октября: 363,7 МБ). Делим по файлам на части под
+        # лимит, чистим каждую отдельно и собираем обратно.
+        if safe.stat().st_size > _max_bytes():
+            parts = _split_archive(safe, _max_bytes(), label)
+            print(f"{label} is {_mb(safe.stat().st_size)}: cleaning in {len(parts)} parts.")
+        for n, part in enumerate(parts, 1):
+            _clean_via_service(part, label if len(parts) == 1 else f"{label}, part {n}/{len(parts)}")
+        _restore_names(parts, path, names)
     finally:
-        safe.unlink(missing_ok=True)
+        for part in {safe, *parts}:
+            part.unlink(missing_ok=True)
 
     print(f"Metadata stripped: {label} is now {_mb(path.stat().st_size)}.")
     return path
@@ -146,21 +155,60 @@ def _write_safe_copy(source: Path, target: Path) -> dict:
     return names
 
 
-def _restore_names(cleaned: Path, target: Path, names: dict) -> None:
-    """Собирает итоговый архив: содержимое — очищенное, имена — исходные."""
-    with zipfile.ZipFile(cleaned) as src:
-        got = {item.filename for item in src.infolist() if not item.is_dir()}
-        if got != set(names):
-            lost = sorted(set(names) - got)
-            _fail(
-                f"service changed the archive structure: {len(names)} entries in, "
-                f"{len(got)} out"
-                + (f"; missing: {', '.join(names[n] for n in lost[:5])}" if lost else "")
-            )
-        result = target.with_name(target.stem + ".restored.zip")
+def _split_archive(safe: Path, limit: int, label: str) -> list:
+    """Делит архив с безопасными именами на части, каждая — меньше лимита.
+
+    Файлы внутри не режем: один кадр больше лимита — повод остановиться.
+    Запас 5% — на заголовки ZIP и на то, что сервис считает размер по-своему.
+    """
+    budget = int(limit * 0.95)
+    groups, current, used = [], [], 0
+    with zipfile.ZipFile(safe) as src:
+        for item in src.infolist():
+            size = item.compress_size + 200
+            if size > budget:
+                _fail(f"{label}: one file is {_mb(item.file_size)}, over the service limit of {_mb(limit)}. Make it smaller.")
+            if current and used + size > budget:
+                groups.append(current)
+                current, used = [], 0
+            current.append(item.filename)
+            used += size
+        if current:
+            groups.append(current)
+        parts = []
+        for n, group in enumerate(groups, 1):
+            part = safe.with_name(f"{safe.stem}.part{n}.zip")
+            with zipfile.ZipFile(part, "w", zipfile.ZIP_STORED) as out:
+                for name in group:
+                    out.writestr(name, src.read(name))
+            parts.append(part)
+    return parts
+
+
+def _restore_names(cleaned: list, target: Path, names: dict) -> None:
+    """Собирает итоговый архив из очищенных частей: содержимое — очищенное, имена — исходные."""
+    where = {}
+    for part in cleaned:
+        with zipfile.ZipFile(part) as src:
+            for item in src.infolist():
+                if not item.is_dir():
+                    where[item.filename] = part
+    if set(where) != set(names):
+        lost = sorted(set(names) - set(where))
+        _fail(
+            f"service changed the archive structure: {len(names)} entries in, "
+            f"{len(where)} out"
+            + (f"; missing: {', '.join(names[n] for n in lost[:5])}" if lost else "")
+        )
+    result = target.with_name(target.stem + ".restored.zip")
+    opened = {part: zipfile.ZipFile(part) for part in cleaned}
+    try:
         with zipfile.ZipFile(result, "w", zipfile.ZIP_STORED) as out:
             for safe, original in names.items():
-                out.writestr(original, src.read(safe))
+                out.writestr(original, opened[where[safe]].read(safe))
+    finally:
+        for archive in opened.values():
+            archive.close()
     result.replace(target)
 
 

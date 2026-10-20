@@ -92,5 +92,50 @@ with tempfile.TemporaryDirectory() as tmp:
     except SystemExit as e:
         check("«file deleted» останавливает прогон с понятной причиной", "deleted on the service" in str(e))
 
+# Архив больше лимита: делится на части, каждая чистится отдельно, собирается обратно.
+uploads = []
+
+
+def echo_post(url, headers, files, timeout):
+    name, handle = files["file"]
+    uploads.append((name, handle.read()))
+    return Resp(201, {"id": len(uploads)})
+
+
+def echo_get(url, headers, timeout, stream=False):
+    m = re.search(r"/media/(\d+)$", url)
+    if m:
+        return Resp(200, body=uploads[int(m.group(1)) - 1][1])
+    n = int(re.search(r"/(\d+)/$", url).group(1))
+    return Resp(200, {"status": "success", "result_url": f"https://svc/media/{n}"})
+
+
+metaclean.requests.post, metaclean.requests.get = echo_post, echo_get
+metaclean.requests.delete = lambda url, headers, timeout: Resp(200)
+os.environ["METACLEAN_MAX_BYTES"] = "4000"
+with tempfile.TemporaryDirectory() as tmp:
+    names = [f"{loc}/{i}.png" for loc in ("en-US", "de-DE", "fr-FR") for i in (1, 2)]
+    big = Path(tmp) / "downloaded_screenshots.zip"
+    with zipfile.ZipFile(big, "w", zipfile.ZIP_STORED) as z:
+        for i, n in enumerate(names):
+            z.writestr(n, bytes([i]) * 1500)
+    metaclean.strip_metadata(big, "screenshots")
+    check(f"архив больше лимита ушёл частями: {len(uploads)}", len(uploads) >= 2)
+    check("каждая часть меньше лимита", all(len(body) <= 4000 for _, body in uploads))
+    with zipfile.ZipFile(big) as z:
+        back = {n: z.read(n) for n in z.namelist()}
+    check("собран обратно: все файлы, исходные имена и содержимое",
+          sorted(back) == sorted(names) and all(back[n] == bytes([i]) * 1500 for i, n in enumerate(names)))
+
+    huge = Path(tmp) / "one_big.zip"
+    with zipfile.ZipFile(huge, "w", zipfile.ZIP_STORED) as z:
+        z.writestr("en-US/1.png", b"x" * 5000)
+    try:
+        metaclean.strip_metadata(huge, "screenshots")
+        check("один файл больше лимита останавливает прогон", False)
+    except SystemExit as e:
+        check("один файл больше лимита останавливает прогон с понятной причиной", "one file is" in str(e))
+del os.environ["METACLEAN_MAX_BYTES"]
+
 print("\nИтог:", "всё сходится" if not fails else f"ошибок {fails}")
 sys.exit(1 if fails else 0)
