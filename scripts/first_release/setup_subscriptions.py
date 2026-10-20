@@ -97,6 +97,9 @@ ISO_TRIALS = {"P3D": "THREE_DAYS", "P1W": "ONE_WEEK", "P7D": "ONE_WEEK",
               "P2M": "TWO_MONTHS", "P3M": "THREE_MONTHS", "P6M": "SIX_MONTHS",
               "P1Y": "ONE_YEAR"}
 
+# Состояния продукта, в которых он уже отдан Apple: дальше его ведёт ревью.
+REVIEWED_STATES = {"WAITING_FOR_REVIEW", "IN_REVIEW", "APPROVED"}
+
 
 def trial_of(text) -> str | None:
     """Пробный период из листинга → enum Apple. None — пробного нет.
@@ -672,6 +675,13 @@ def main() -> int:
                 print(f"ПРИЧИНА подписка {product['product_id']}: {short_error(error)}",
                       file=sys.stderr)
                 failures.append(f"{product['product_id']}: {str(error)[:80]}")
+                continue
+            # Продукт уже прошёл ревью или стоит в очереди — отправлять его
+            # заново не нужно, и ждать READY_TO_SUBMIT бессмысленно: в это
+            # состояние он больше не вернётся (Dog Translator 1, 20 октября).
+            now = setup.state(sub_id)
+            if now in REVIEWED_STATES:
+                print(f"    состояние: {now} — уже на ревью или одобрен, отправлять не нужно")
                 continue
             step = Step(product["product_id"], "READY_TO_SUBMIT",
                         lambda _want: None, lambda: setup.state(sub_id))
