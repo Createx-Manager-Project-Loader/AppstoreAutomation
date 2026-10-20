@@ -181,7 +181,13 @@ class Setup:
                 "METADATA_REJECTED", "INVALID_BINARY", "WAITING_FOR_REVIEW",
             )]
             if not editable:
-                raise Problem("нет редактируемой версии — deliver должен создать её раньше")
+                # Строка «Версии: 1.0 — READY_FOR_SALE» разбирается консолью:
+                # по статусу она подсказывает ПМу, что делать. Формат не менять.
+                seen = ", ".join(
+                    f"{v['attributes'].get('versionString', '?')} — "
+                    f"{v['attributes'].get('appStoreState', '?')}" for v in versions
+                ) or "ни одной"
+                raise Problem(f"нет редактируемой версии. Версии: {seen}")
             self._version_id = editable[0]["id"]
         return self._version_id
 
