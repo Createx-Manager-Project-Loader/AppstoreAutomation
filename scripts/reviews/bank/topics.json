@@ -1,0 +1,186 @@
+{
+  "_about": "Темы отзывов: ключевые слова (по английскому тексту — отзыв сначала переводится), суть ответа и совет. Это стартовый набор для образца; полный банк — 70–80 тем. Правила: без возвратов денег, ссылок, сроков и обещаний исправить; только то, что верно для любого приложения.",
+  "topics": {
+    "subscription_cancel": {
+      "label": "Отмена подписки",
+      "keywords": ["cancel", "unsubscribe", "stop the subscription", "end the subscription", "can't find where", "how do i stop", "turn off renewal", "auto-renew", "auto renew"],
+      "core": [
+        {"id": "sc.c1", "en": "You can cancel at any time in your iPhone Settings: tap your name, then Subscriptions, then {app}.", "ru": "Отменить можно в любой момент в настройках iPhone: ваше имя → Подписки → {app}."},
+        {"id": "sc.c2", "en": "Subscriptions are managed by Apple, so the cancel button lives in Settings → your name → Subscriptions.", "ru": "Подписками управляет Apple, поэтому кнопка отмены находится в Настройки → ваше имя → Подписки."},
+        {"id": "sc.c3", "en": "To stop renewal, open Settings, tap your name, choose Subscriptions and select {app}.", "ru": "Чтобы отключить продление, откройте Настройки, нажмите на своё имя, выберите Подписки и {app}."},
+        {"id": "sc.c4", "en": "Apple handles all App Store subscriptions; you'll find {app} under Settings → your name → Subscriptions, where it can be cancelled.", "ru": "Все подписки App Store ведёт Apple: {app} найдётся в Настройки → ваше имя → Подписки, там её можно отменить."},
+        {"id": "sc.c5", "en": "Cancelling takes a few taps: Settings → your name → Subscriptions → {app} → Cancel Subscription.", "ru": "Отмена занимает пару нажатий: Настройки → ваше имя → Подписки → {app} → Отменить подписку."}
+      ],
+      "advice": [
+        {"id": "sc.a1", "en": "After cancelling, you keep access until the end of the paid period.", "ru": "После отмены доступ сохраняется до конца оплаченного периода."},
+        {"id": "sc.a2", "en": "If {app} doesn't appear in the list, check that you're signed in with the same Apple ID you used to subscribe.", "ru": "Если {app} нет в списке, проверьте, что вы вошли под тем же Apple ID, с которого оформляли подписку."},
+        {"id": "sc.a3", "en": "The same list also shows the next renewal date.", "ru": "В том же списке видна и дата следующего продления."}
+      ]
+    },
+    "charged": {
+      "label": "Неожиданное списание",
+      "keywords": ["charged", "charge", "billed", "took my money", "scam", "money back", "refund", "after the trial", "free trial", "didn't agree", "without permission"],
+      "core": [
+        {"id": "ch.c1", "en": "Payments for subscriptions go through Apple, and you can see every charge and renewal date in Settings → your name → Subscriptions.", "ru": "Оплата подписок идёт через Apple, а все списания и даты продления видны в Настройки → ваше имя → Подписки."},
+        {"id": "ch.c2", "en": "The free trial turns into a paid subscription unless it's cancelled before it ends; the exact date is shown in Settings → your name → Subscriptions.", "ru": "Пробный период переходит в платную подписку, если не отменить его до конца; точная дата видна в Настройки → ваше имя → Подписки."},
+        {"id": "ch.c3", "en": "We don't have access to payment details — all billing is handled by Apple, who can help with any charge question.", "ru": "У нас нет доступа к платёжным данным — все оплаты ведёт Apple, и по любому вопросу о списании поможет она."},
+        {"id": "ch.c4", "en": "Every App Store subscription can be reviewed and cancelled in Settings → your name → Subscriptions.", "ru": "Любую подписку App Store можно посмотреть и отменить в Настройки → ваше имя → Подписки."}
+      ],
+      "advice": [
+        {"id": "ch.a1", "en": "For questions about a specific payment, Apple Support is the right place to ask.", "ru": "С вопросом о конкретном платеже лучше обратиться в поддержку Apple."},
+        {"id": "ch.a2", "en": "Cancelling at least a day before the renewal date makes sure no new charge happens.", "ru": "Если отменить хотя бы за день до продления, нового списания не будет."}
+      ]
+    },
+    "not_working": {
+      "label": "Не работает как ожидали",
+      "keywords": ["doesn't work", "does not work", "not working", "useless", "wrong", "inaccurate", "fake", "nothing happens", "doesn't do", "waste", "broken", "not accurate", "doesn't translate", "no results"],
+      "core": [
+        {"id": "nw.c1", "en": "Results are usually better after a few tries, once you've got used to how {app} works.", "ru": "Обычно результаты лучше после нескольких попыток, когда привыкнешь к тому, как работает {app}."},
+        {"id": "nw.c2", "en": "We'd really like to understand what went wrong — the details in your review already help.", "ru": "Нам правда хочется понять, что пошло не так — подробности из вашего отзыва уже помогают."},
+        {"id": "nw.c3", "en": "Sometimes the issue comes from an older version, so updating {app} can make a real difference.", "ru": "Иногда дело в старой версии, и обновление {app} заметно меняет дело."},
+        {"id": "nw.c4", "en": "We've shared your experience with the team so they can look into it.", "ru": "Мы передали ваш опыт команде, чтобы они разобрались."},
+        {"id": "nw.c5", "en": "Your description helps us see where {app} falls short.", "ru": "Ваше описание помогает нам увидеть, где {app} недорабатывает."}
+      ],
+      "advice": [
+        {"id": "nw.a1", "en": "Please make sure you have the latest version from the App Store and try again.", "ru": "Пожалуйста, обновите приложение до последней версии из App Store и попробуйте снова."},
+        {"id": "nw.a2", "en": "Restarting the app and your device often helps too.", "ru": "Часто помогает и перезапуск приложения и устройства."},
+        {"id": "nw.a3", "en": "If it still isn't right, you can reach us through the support section inside the app.", "ru": "Если всё ещё не так, напишите нам через раздел поддержки в приложении."}
+      ]
+    },
+    "crash": {
+      "label": "Вылетает",
+      "keywords": ["crash", "crashes", "closes", "shuts down", "freezes", "freeze", "kicks me out", "force close", "stuck", "black screen", "white screen"],
+      "core": [
+        {"id": "cr.c1", "en": "Crashes are something we take seriously, and your report helps us find the cause.", "ru": "Вылеты мы воспринимаем всерьёз, и ваш отзыв помогает найти причину."},
+        {"id": "cr.c2", "en": "We've passed the crash on to our developers.", "ru": "Мы передали информацию о вылете разработчикам."},
+        {"id": "cr.c3", "en": "The app shouldn't close like that, and we want to get to the bottom of it.", "ru": "Приложение не должно так закрываться, и мы хотим разобраться."},
+        {"id": "cr.c4", "en": "Thanks for describing when it happens — that makes the crash much easier to track down.", "ru": "Спасибо, что описали, когда это происходит, — так вылет гораздо проще найти."}
+      ],
+      "advice": [
+        {"id": "cr.a1", "en": "Updating to the latest version and restarting your device may help in the meantime.", "ru": "Пока что может помочь обновление до последней версии и перезапуск устройства."},
+        {"id": "cr.a2", "en": "Keeping some free storage on the device can also prevent sudden closes.", "ru": "Свободное место на устройстве тоже помогает избежать внезапных закрытий."},
+        {"id": "cr.a3", "en": "If it keeps happening, please write to us through support in the app and mention your device model.", "ru": "Если повторяется, напишите нам через поддержку в приложении и укажите модель устройства."}
+      ]
+    },
+    "slow": {
+      "label": "Медленно работает",
+      "keywords": ["slow", "takes long", "takes forever", "too long", "lag", "laggy", "loading", "waiting", "takes ages"],
+      "core": [
+        {"id": "sl.c1", "en": "Speed matters to us, and we're sorry it felt slow.", "ru": "Скорость для нас важна, и жаль, что всё работало медленно."},
+        {"id": "sl.c2", "en": "Some steps need a stable internet connection, which can make them slower on a weak network.", "ru": "Некоторым действиям нужен стабильный интернет, и при слабой сети они идут дольше."},
+        {"id": "sl.c3", "en": "We've noted where it feels slow so the team can look at it.", "ru": "Мы отметили, где ощущается медленно, чтобы команда посмотрела."},
+        {"id": "sl.c4", "en": "Waiting is never fun, and your feedback helps us see where to speed things up.", "ru": "Ждать никому не нравится, и ваш отзыв помогает понять, что ускорять."}
+      ],
+      "advice": [
+        {"id": "sl.a1", "en": "Trying on Wi-Fi and with the latest version of the app may speed things up.", "ru": "Может помочь Wi-Fi и последняя версия приложения."},
+        {"id": "sl.a2", "en": "Closing other apps running in the background can help as well.", "ru": "Также может помочь закрыть другие приложения в фоне."}
+      ]
+    },
+    "paywall": {
+      "label": "Платно / дорого",
+      "keywords": ["expensive", "price", "pay", "paywall", "subscription right away", "everything is paid", "too much", "overpriced", "money", "costs", "not free", "free version"],
+      "core": [
+        {"id": "pw.c1", "en": "We understand that not every feature being free can be disappointing.", "ru": "Понимаем, что платные функции могут разочаровать."},
+        {"id": "pw.c2", "en": "The subscription is what lets us keep developing {app} without ads.", "ru": "Подписка позволяет нам развивать {app} без рекламы."},
+        {"id": "pw.c3", "en": "The trial is there so you can try every feature before deciding.", "ru": "Пробный период нужен, чтобы попробовать все функции до решения."},
+        {"id": "pw.c4", "en": "We've shared your thoughts on pricing with the team.", "ru": "Ваше мнение о цене мы передали команде."}
+      ],
+      "advice": [
+        {"id": "pw.a1", "en": "The subscription screen can be closed if you'd like to look around first.", "ru": "Экран подписки можно закрыть, если сначала хочется осмотреться."},
+        {"id": "pw.a2", "en": "You can see and manage the subscription any time in Settings → your name → Subscriptions.", "ru": "Подписку можно посмотреть и изменить в любой момент в Настройки → ваше имя → Подписки."}
+      ]
+    },
+    "ads": {
+      "label": "Реклама",
+      "keywords": ["ads", "advert", "commercials", "too many ads", "pop up", "popups"],
+      "core": [
+        {"id": "ad.c1", "en": "We know ads can get in the way, and we've passed your comment on.", "ru": "Знаем, что реклама может мешать, и передали ваш комментарий."},
+        {"id": "ad.c2", "en": "Thanks for telling us how the ads feel — it helps us find the right balance.", "ru": "Спасибо, что рассказали, как ощущается реклама, — это помогает найти баланс."},
+        {"id": "ad.c3", "en": "Your feedback on ads is noted by the team.", "ru": "Ваш отзыв о рекламе команда учла."}
+      ],
+      "advice": [
+        {"id": "ad.a1", "en": "The subscription removes ads completely, if that ever suits you.", "ru": "С подпиской рекламы нет совсем, если вдруг вам это подойдёт."}
+      ]
+    },
+    "restore": {
+      "label": "Покупка не восстанавливается",
+      "keywords": ["restore", "lost my subscription", "paid but", "still asks to pay", "premium not working", "purchase not", "subscription not working", "already paid"],
+      "core": [
+        {"id": "rs.c1", "en": "If you've already subscribed, the Restore Purchases button in the app brings access back.", "ru": "Если подписка уже оформлена, кнопка «Восстановить покупки» в приложении вернёт доступ."},
+        {"id": "rs.c2", "en": "Access is tied to your Apple ID, so restoring purchases on the same Apple ID should bring everything back.", "ru": "Доступ привязан к Apple ID, поэтому восстановление покупок под тем же Apple ID должно всё вернуть."},
+        {"id": "rs.c3", "en": "Sorry you were asked to pay again — restoring purchases usually fixes that.", "ru": "Извините, что приложение снова попросило оплату, — обычно это решает восстановление покупок."}
+      ],
+      "advice": [
+        {"id": "rs.a1", "en": "Please check that you're signed in with the Apple ID used for the purchase.", "ru": "Проверьте, что вы вошли под тем Apple ID, с которого была покупка."},
+        {"id": "rs.a2", "en": "If restoring doesn't help, write to us through support in the app.", "ru": "Если восстановление не помогло, напишите нам через поддержку в приложении."}
+      ]
+    },
+    "data_lost": {
+      "label": "Пропали данные",
+      "keywords": ["lost", "disappeared", "deleted", "gone", "missing", "erased", "my data", "history", "saved", "doesn't save", "not saving"],
+      "core": [
+        {"id": "dl.c1", "en": "Losing saved data is upsetting, and we're sorry it happened.", "ru": "Потерять сохранённое очень неприятно, нам жаль, что так случилось."},
+        {"id": "dl.c2", "en": "We've passed this on to the team so they can check what happened.", "ru": "Мы передали это команде, чтобы они проверили, что произошло."},
+        {"id": "dl.c3", "en": "Your data matters to us, and this report helps us look for the cause.", "ru": "Ваши данные для нас важны, и этот отзыв помогает найти причину."}
+      ],
+      "advice": [
+        {"id": "dl.a1", "en": "Please make sure you're on the latest version and signed in with the same account as before.", "ru": "Пожалуйста, проверьте, что у вас последняя версия и вы вошли в тот же аккаунт, что и раньше."},
+        {"id": "dl.a2", "en": "If you can, write to us through support in the app with a few details.", "ru": "Если можете, напишите нам через поддержку в приложении с подробностями."}
+      ]
+    },
+    "feature_request": {
+      "label": "Просьба о функции",
+      "keywords": ["would be nice", "would love", "please add", "wish", "feature", "option to", "should have", "missing", "add more", "it would be great", "suggestion"],
+      "core": [
+        {"id": "fr.c1", "en": "Thanks for the idea — we've added it to our list of suggestions.", "ru": "Спасибо за идею — добавили её в список предложений."},
+        {"id": "fr.c2", "en": "Suggestions like this help us decide what to work on.", "ru": "Такие предложения помогают решать, над чем работать."},
+        {"id": "fr.c3", "en": "We love hearing what you'd like to see in {app}.", "ru": "Нам очень интересно, что вы хотели бы видеть в {app}."},
+        {"id": "fr.c4", "en": "Your request has been shared with the team.", "ru": "Ваш запрос мы передали команде."}
+      ],
+      "advice": []
+    },
+    "praise": {
+      "label": "Похвала",
+      "keywords": ["love", "great", "amazing", "awesome", "perfect", "best", "excellent", "fun", "helpful", "recommend", "nice", "good app", "thank you", "useful"],
+      "core": [
+        {"id": "pr.c1", "en": "We put a lot of care into {app}, so hearing this is the best reward.", "ru": "Мы вкладываем в {app} много сил, и такие слова — лучшая награда."},
+        {"id": "pr.c2", "en": "We'll keep working to make it even better.", "ru": "Будем и дальше делать его лучше."},
+        {"id": "pr.c3", "en": "Thanks for recommending {app} — that helps us a lot.", "ru": "Спасибо, что рекомендуете {app}, — это нам очень помогает."},
+        {"id": "pr.c4", "en": "It's great to hear {app} fits into your day.", "ru": "Здорово знать, что {app} нашёл место в вашем дне."}
+      ],
+      "advice": []
+    },
+    "general_neg": {
+      "label": "Недоволен, без подробностей",
+      "keywords": [],
+      "core": [
+        {"id": "gn.c1", "en": "We'd love to know a bit more about what didn't work for you.", "ru": "Хотелось бы узнать подробнее, что вам не подошло."},
+        {"id": "gn.c2", "en": "Your feedback has reached the team, and we'll take it into account.", "ru": "Ваш отзыв дошёл до команды, мы его учтём."},
+        {"id": "gn.c3", "en": "Every review like this helps us improve {app}.", "ru": "Каждый такой отзыв помогает нам улучшать {app}."}
+      ],
+      "advice": [
+        {"id": "gn.a1", "en": "If you'd like to share details, you can write to us through support in the app.", "ru": "Если захотите рассказать подробнее, напишите нам через поддержку в приложении."}
+      ]
+    },
+    "general_mid": {
+      "label": "Нейтрально",
+      "keywords": [],
+      "core": [
+        {"id": "gm.c1", "en": "We'd like to earn that last star, so any ideas are welcome.", "ru": "Хотим заслужить оставшиеся звёзды, так что любые идеи пригодятся."},
+        {"id": "gm.c2", "en": "Tell us what would make {app} better for you — we're listening.", "ru": "Расскажите, что сделало бы {app} лучше для вас, — мы слушаем."},
+        {"id": "gm.c3", "en": "Your rating helps us understand where to improve.", "ru": "Ваша оценка помогает понять, что улучшать."}
+      ],
+      "advice": []
+    },
+    "general_pos": {
+      "label": "Хорошая оценка без текста по делу",
+      "keywords": [],
+      "core": [
+        {"id": "gp.c1", "en": "We're really glad you like {app}.", "ru": "Очень рады, что вам нравится {app}."},
+        {"id": "gp.c2", "en": "Thanks for the support — it keeps us going.", "ru": "Спасибо за поддержку — она нас вдохновляет."},
+        {"id": "gp.c3", "en": "Happy to have you as a user of {app}.", "ru": "Рады, что вы пользуетесь {app}."}
+      ],
+      "advice": []
+    }
+  }
+}

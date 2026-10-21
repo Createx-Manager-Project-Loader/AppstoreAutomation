@@ -1,0 +1,74 @@
+{
+  "_about": "Общие куски ответа: обращение, сочувствие или благодарность, концовка. Делятся по оценке: neg — 1–2★, mid — 3★, pos — 4–5★. {app} — название приложения. Правила банка: без возвратов денег, ссылок, сроков и обещаний исправить.",
+  "opener": {
+    "neg": [
+      {"id": "op.n1", "en": "Hi, thank you for taking the time to write this.", "ru": "Здравствуйте, спасибо, что нашли время написать."},
+      {"id": "op.n2", "en": "Hello, and thanks for letting us know.", "ru": "Здравствуйте, и спасибо, что сообщили."},
+      {"id": "op.n3", "en": "Thank you for the honest feedback.", "ru": "Спасибо за честный отзыв."},
+      {"id": "op.n4", "en": "Hi there, we appreciate you sharing this with us.", "ru": "Здравствуйте, ценим, что вы поделились этим с нами."},
+      {"id": "op.n5", "en": "Thanks for writing to us about this.", "ru": "Спасибо, что написали нам об этом."},
+      {"id": "op.n6", "en": "Hello, thank you for the detailed review.", "ru": "Здравствуйте, спасибо за подробный отзыв."},
+      {"id": "op.n7", "en": "We read every review, and yours is no exception — thank you.", "ru": "Мы читаем каждый отзыв, и ваш не исключение — спасибо."},
+      {"id": "op.n8", "en": "Hi, we're glad you told us instead of just leaving.", "ru": "Здравствуйте, хорошо, что вы написали, а не просто ушли."}
+    ],
+    "mid": [
+      {"id": "op.m1", "en": "Hi, thanks for the review.", "ru": "Здравствуйте, спасибо за отзыв."},
+      {"id": "op.m2", "en": "Thank you for trying {app} and sharing your thoughts.", "ru": "Спасибо, что попробовали {app} и поделились мнением."},
+      {"id": "op.m3", "en": "Hello, we appreciate the balanced feedback.", "ru": "Здравствуйте, ценим взвешенный отзыв."},
+      {"id": "op.m4", "en": "Thanks for giving {app} a try.", "ru": "Спасибо, что дали {app} шанс."},
+      {"id": "op.m5", "en": "Hi, thank you for taking a moment to rate us.", "ru": "Здравствуйте, спасибо, что нашли минуту нас оценить."},
+      {"id": "op.m6", "en": "Hello, and thanks for the useful comments.", "ru": "Здравствуйте, и спасибо за полезные замечания."}
+    ],
+    "pos": [
+      {"id": "op.p1", "en": "Thank you so much for the kind words!", "ru": "Огромное спасибо за тёплые слова!"},
+      {"id": "op.p2", "en": "Hi, thanks a lot for the great review!", "ru": "Здравствуйте, большое спасибо за отличный отзыв!"},
+      {"id": "op.p3", "en": "What a lovely review — thank you!", "ru": "Какой приятный отзыв — спасибо!"},
+      {"id": "op.p4", "en": "Thanks for the stars and the nice words!", "ru": "Спасибо за звёзды и добрые слова!"},
+      {"id": "op.p5", "en": "Hello, we really appreciate your support.", "ru": "Здравствуйте, очень ценим вашу поддержку."},
+      {"id": "op.p6", "en": "Thank you for taking the time to leave a review!", "ru": "Спасибо, что нашли время оставить отзыв!"}
+    ]
+  },
+  "empathy": {
+    "neg": [
+      {"id": "em.n1", "en": "We're sorry the app didn't work the way you expected.", "ru": "Жаль, что приложение работало не так, как вы ожидали."},
+      {"id": "em.n2", "en": "We understand how frustrating that must be.", "ru": "Понимаем, как это неприятно."},
+      {"id": "em.n3", "en": "Sorry for the trouble this caused you.", "ru": "Извините за доставленные неудобства."},
+      {"id": "em.n4", "en": "That's definitely not the experience we want you to have.", "ru": "Точно не такого опыта мы вам желаем."},
+      {"id": "em.n5", "en": "We hear you, and we're sorry it went this way.", "ru": "Мы вас услышали, и нам жаль, что так вышло."},
+      {"id": "em.n6", "en": "It's disappointing to hear this, and we apologise.", "ru": "Грустно это слышать, приносим извинения."}
+    ],
+    "mid": [
+      {"id": "em.m1", "en": "We're glad some parts work for you and want the rest to as well.", "ru": "Рады, что что-то вам подошло, и хотим, чтобы подошло и остальное."},
+      {"id": "em.m2", "en": "Thanks for pointing out what could be better.", "ru": "Спасибо, что указали, что можно улучшить."},
+      {"id": "em.m3", "en": "Feedback like this genuinely helps us.", "ru": "Такие отзывы правда нам помогают."},
+      {"id": "em.m4", "en": "We appreciate that you noticed both the good and the bad.", "ru": "Ценим, что вы отметили и хорошее, и плохое."}
+    ],
+    "pos": [
+      {"id": "em.p1", "en": "It means a lot to our small team.", "ru": "Для нашей небольшой команды это очень много значит."},
+      {"id": "em.p2", "en": "We're so happy {app} is useful to you.", "ru": "Очень рады, что {app} вам полезен."},
+      {"id": "em.p3", "en": "Reviews like yours make our day.", "ru": "Такие отзывы делают наш день."},
+      {"id": "em.p4", "en": "It's great to know you enjoy using it.", "ru": "Здорово знать, что вам нравится им пользоваться."}
+    ]
+  },
+  "closer": {
+    "neg": [
+      {"id": "cl.n1", "en": "Thank you for your patience.", "ru": "Спасибо за терпение."},
+      {"id": "cl.n2", "en": "We hope to change your mind.", "ru": "Надеемся изменить ваше мнение."},
+      {"id": "cl.n3", "en": "Thanks again for letting us know.", "ru": "Ещё раз спасибо, что сообщили."},
+      {"id": "cl.n4", "en": "We appreciate you giving us a chance to help.", "ru": "Спасибо, что даёте нам шанс помочь."},
+      {"id": "cl.n5", "en": "Your feedback has been passed on to the team.", "ru": "Ваш отзыв мы передали команде."}
+    ],
+    "mid": [
+      {"id": "cl.m1", "en": "Thanks again, and enjoy {app}!", "ru": "Ещё раз спасибо, и приятного пользования {app}!"},
+      {"id": "cl.m2", "en": "We hope you'll keep using {app}.", "ru": "Надеемся, вы останетесь с {app}."},
+      {"id": "cl.m3", "en": "Your ideas are noted — thank you.", "ru": "Ваши идеи мы записали — спасибо."},
+      {"id": "cl.m4", "en": "Have a great day!", "ru": "Хорошего дня!"}
+    ],
+    "pos": [
+      {"id": "cl.p1", "en": "Have a wonderful day!", "ru": "Прекрасного вам дня!"},
+      {"id": "cl.p2", "en": "Thanks for being with us!", "ru": "Спасибо, что вы с нами!"},
+      {"id": "cl.p3", "en": "Enjoy {app}!", "ru": "Приятного пользования {app}!"},
+      {"id": "cl.p4", "en": "We're glad to have you with us.", "ru": "Рады, что вы с нами."}
+    ]
+  }
+}
