@@ -165,6 +165,7 @@ def section_info(client, app: dict, prev: dict, by: str | None) -> dict:
     a = info.get("attributes") or {}
     category = (((info.get("relationships") or {}).get("primaryCategory") or {}).get("data") or {}).get("id")
     return {
+        "appId": app.get("id"),
         "name": (app.get("attributes") or {}).get("name"),
         "bundleId": (app.get("attributes") or {}).get("bundleId"),
         "sku": (app.get("attributes") or {}).get("sku"),
