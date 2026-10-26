@@ -87,11 +87,8 @@ def section_ab(client, app: dict, prev: dict, by: str | None) -> dict:
     except Problem:
         # Приложения ещё нет в продаже — тестов быть не может, это не ошибка.
         return {"tests": [], "noLiveVersion": True}
-    return {"tests": [
-        {"id": t["id"], "name": t["name"], "state": t["state"], "startDate": t["startDate"], "endDate": t["endDate"],
-         "trafficProportion": t["trafficProportion"], "treatments": len(t["treatments"])}
-        for t in tests
-    ]}
+    # Целиком, с вариантами: консоль подставляет их в форму заливки кадров.
+    return {"tests": tests}
 
 
 def section_reviews(client, app: dict, prev: dict, by: str | None) -> dict:
