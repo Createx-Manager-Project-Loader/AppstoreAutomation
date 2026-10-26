@@ -87,6 +87,67 @@ en = next(l for l in sec["locales"] if l["locale"] == "en-US")
 check("языки: en с текстом и 6 кадрами", en["text"] and en["screenshots"] == 6)
 check("языки: de без текста и кадров", not de["text"] and de["screenshots"] == 0)
 
+# Языки: один язык не прочитался — раздел собран, язык помечен.
+class Flaky(Fake):
+    def request(self, method: str, path: str) -> dict:
+        if "/l2/appScreenshotSets" in path:
+            raise RuntimeError("GET https://api.appstoreconnect.apple.com/... failed: Read timed out. (read timeout=60)")
+        return super().request(method, path)
+
+
+client = Flaky(client.routes)
+sec = snapshot.section_languages(client, APP, {}, None)
+de = next(l for l in sec["locales"] if l["locale"] == "de-DE")
+check("языки: de не прочитан, en на месте", de["screenshots"] is None and sec["unread"] == [{"locale": "de-DE", "kind": "timeout"}])
+
+
+class Dead(Fake):
+    def request(self, method: str, path: str) -> dict:
+        if "appScreenshotSets" in path:
+            raise RuntimeError("Read timed out")
+        return super().request(method, path)
+
+
+try:
+    snapshot.section_languages(Dead(client.routes), APP, {}, None)
+    check("языки: ни один не прочитан — ошибка раздела", False)
+except snapshot.SectionError as error:
+    check("языки: ни один не прочитан — ошибка раздела", error.kind == "timeout")
+
+# Причины ошибок.
+for text, kind in [("Read timed out. (read timeout=60)", "timeout"), ("GET /x failed with 429: {}", "rate"),
+                   ("GET /x failed with 401: {}", "auth"), ("GET /x failed with 404: {}", "notfound"),
+                   ("GET /x failed with 503: {}", "apple"), ("что-то странное", "other")]:
+    check(f"причина: {kind}", snapshot.kind_of(RuntimeError(text)) == kind)
+
+# Запись раздела: при ошибке старые данные и их дата остаются.
+good = snapshot.record_section(None, "t1", data={"x": 1})
+bad = snapshot.record_section(good, "t2", error=RuntimeError("Read timed out"))
+check("ошибка: данные и dataAt от прошлого раза", bad["data"] == {"x": 1} and bad["dataAt"] == "t1" and bad["at"] == "t2")
+bad2 = snapshot.record_section(bad, "t3", error=RuntimeError("GET failed with 503"))
+check("ошибка подряд: dataAt не сдвигается", bad2["dataAt"] == "t1" and bad2["errorKind"] == "apple")
+check("старый формат без dataAt: берём at", snapshot.record_section({"at": "t0", "data": 1, "error": None}, "t4", error=RuntimeError("x"))["dataAt"] == "t0")
+check("ошибка без прошлых данных: dataAt пуст", snapshot.record_section(None, "t5", error=RuntimeError("x"))["dataAt"] is None)
+
+# Тексты: название с appInfo (редактируемого), описание и ключи с версии — в одну строку по языку.
+APP_L = {"id": "1", "attributes": {"name": "Locator 54", "primaryLocale": "en-US"}}
+client = Fake({
+    "/apps/1/appStoreVersions": {"data": [V("1.13", "PREPARE_FOR_SUBMISSION", "2026-10-20")]},
+    "/apps/1/appInfos": {"data": [{"id": "live", "attributes": {"state": "READY_FOR_DISTRIBUTION"}},
+                                  {"id": "edit", "attributes": {"state": "PREPARE_FOR_SUBMISSION"}}]},
+    "/appInfos/edit/appInfoLocalizations": {"data": [{"attributes": {"locale": "en-US", "name": "Locator", "subtitle": "Find family"}}]},
+    "/appStoreVersions/v1.13/appStoreVersionLocalizations": {"data": [
+        {"attributes": {"locale": "en-US", "description": "Long text", "keywords": "gps,map", "whatsNew": "Fixes"}},
+        {"attributes": {"locale": "de-DE", "description": "Lang", "keywords": "karte"}}]},
+})
+sec = snapshot.section_listing(client, APP_L, {}, None)
+en = next(l for l in sec["locales"] if l["locale"] == "en-US")
+de = next(l for l in sec["locales"] if l["locale"] == "de-DE")
+check("тексты: en собран из двух мест", en["name"] == "Locator" and en["subtitle"] == "Find family" and en["keywords"] == "gps,map")
+check("тексты: de без названия — пусто, но язык есть", de["name"] is None and de["description"] == "Lang")
+check("тексты: взят редактируемый appInfo", not any("/appInfos/live/" in a for a in client.asked))
+check("тексты: версия и основной язык", sec["version"] == "1.13" and sec["primaryLocale"] == "en-US")
+
 # О приложении.
 client = Fake({"/apps/1/appInfos": {"data": [{"attributes": {"appStoreAgeRating": "FOUR_PLUS", "state": "READY_FOR_DISTRIBUTION"},
                                               "relationships": {"primaryCategory": {"data": {"id": "NAVIGATION"}}}}]}})

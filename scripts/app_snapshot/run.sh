@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Шаг прогона «Данные из App Store Connect»: собрать один раздел снимка или
 # (save) закоммитить store/snapshot.json — консоль читает снимок из него.
-#   run.sh status | ab | reviews | subscriptions | languages | info | save
+#   run.sh status | ab | reviews | subscriptions | languages | listing | info | save
 set -euo pipefail
 
 SNAPSHOT_SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
