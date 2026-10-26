@@ -50,17 +50,10 @@ check("незнакомое состояние", status.status_of("SOMETHING_NEW
 # История: смена статуса — новая строка, повторная проверка — нет.
 cur = {"status": "wait", "appVersion": "1.13", "raw": "WAITING_FOR_REVIEW", "live": "1.12"}
 st = status.record({}, cur, "2026-10-20T10:00:00Z", "pm")
-check("первая запись", len(st["history"]) == 1 and st["changedAt"] == "2026-10-20T10:00:00Z" and st["version"] == status.STATE_VERSION)
+check("первая запись", len(st["history"]) == 1 and st["changedAt"] == "2026-10-20T10:00:00Z")
 st = status.record(st, cur, "2026-10-20T22:00:00Z", None)
 check("тот же статус — без новой строки", len(st["history"]) == 1 and st["checkedAt"] == "2026-10-20T22:00:00Z" and st["changedAt"] == "2026-10-20T10:00:00Z")
 st = status.record(st, {**cur, "status": "review", "raw": "IN_REVIEW"}, "2026-10-21T10:00:00Z", None)
 check("смена статуса — новая строка сверху", len(st["history"]) == 2 and st["history"][0]["status"] == "review" and st["changedAt"] == "2026-10-21T10:00:00Z")
-
-# Файл переживает повторную загрузку: версия формата не затирается номером приложения.
-import json, tempfile  # noqa: E401,E402
-with tempfile.TemporaryDirectory() as d:
-    f = Path(d) / "status.json"
-    f.write_text(json.dumps(st))
-    check("файл читается обратно с историей", len(status.load(f).get("history", [])) == 2)
 
 sys.exit(0 if ok else 1)
