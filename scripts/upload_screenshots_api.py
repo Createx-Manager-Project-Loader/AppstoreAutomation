@@ -34,6 +34,10 @@ STATE_PRIORITY = [
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 DISPLAY_TYPES_BY_SIZE = {
     # iPhone
+    # Группы по таблице Apple «Screenshot specifications»: размеры одной группы
+    # (Dynamic Island, большой экран: 16/17 Pro Max, Air) — один тип показа.
+    (1260, 2736): "APP_IPHONE_67",
+    (2736, 1260): "APP_IPHONE_67",
     (1290, 2796): "APP_IPHONE_67",
     (2796, 1290): "APP_IPHONE_67",
     (1320, 2868): "APP_IPHONE_67",
@@ -45,6 +49,9 @@ DISPLAY_TYPES_BY_SIZE = {
     (1170, 2532): "APP_IPHONE_61",
     (2532, 1170): "APP_IPHONE_61",
     (1179, 2556): "APP_IPHONE_61",
+    # Dynamic Island, средний экран: 16 Pro, 17, 17 Pro.
+    (1206, 2622): "APP_IPHONE_61",
+    (2622, 1206): "APP_IPHONE_61",
     (2556, 1179): "APP_IPHONE_61",
     (1125, 2436): "APP_IPHONE_58",
     (2436, 1125): "APP_IPHONE_58",
@@ -59,6 +66,11 @@ DISPLAY_TYPES_BY_SIZE = {
     (2732, 2048): "APP_IPAD_PRO_3GEN_129",
     (2064, 2752): "APP_IPAD_PRO_3GEN_129",
     (2752, 2064): "APP_IPAD_PRO_3GEN_129",
+    # 11": iPad Pro M4/M5, Air M2+, iPad A16, mini A17 Pro.
+    (1488, 2266): "APP_IPAD_PRO_3GEN_11",
+    (2266, 1488): "APP_IPAD_PRO_3GEN_11",
+    (1668, 2420): "APP_IPAD_PRO_3GEN_11",
+    (2420, 1668): "APP_IPAD_PRO_3GEN_11",
     (1668, 2388): "APP_IPAD_PRO_3GEN_11",
     (2388, 1668): "APP_IPAD_PRO_3GEN_11",
     (1640, 2360): "APP_IPAD_PRO_3GEN_11",
