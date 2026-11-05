@@ -36,8 +36,13 @@ from upload_screenshots_api import (  # noqa: E402
     AppStoreConnectError,
 )
 
+# Связь с вариантами обязана стоять в списке полей. Apple режет ответ по
+# fields[...], и связи, которой нет в списке, в ответе тоже нет — даже при
+# include. Без неё два месяца у каждого теста было «без вариантов», консоль не
+# знала их id, и каждая заливка заводила ещё один вариант с тем же именем.
 EXPERIMENT_FIELDS = (
-    "name,state,trafficProportion,reviewRequired,startDate,endDate,platform"
+    "name,state,trafficProportion,reviewRequired,startDate,endDate,platform,"
+    "appStoreVersionExperimentTreatments"
 )
 TREATMENT_FIELDS = "name,promotedDate"
 

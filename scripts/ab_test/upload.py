@@ -58,14 +58,15 @@ from upload_screenshots_api import (  # noqa: E402
     EXPERIMENT_PARENT,
     AppStoreConnectClient,
     AppStoreConnectError,
+    PROCESSING_TIMEOUT,
     display_type_for_image,
+    env_int,
     find_app,
     image_sort_key,
     list_screenshot_sets,
-    order_screenshots,
     replace_screenshot_set,
     require_env,
-    upload_screenshot,
+    upload_set,
 )
 
 IMAGES = {".png", ".jpg", ".jpeg"}
@@ -176,15 +177,28 @@ def unpack(url: str, label: str, target: Path,
     return spread(archive_path, label, target, default_locale)
 
 
+# Apple отказывает так, если в архиве есть язык, которого нет в версии
+# приложения: вариант теста — копия страницы, лишних языков у него не бывает.
+LOCALE_NOT_IN_VERSION = "Locale is not configured in app version"
+
+
 def fill_treatment(client: AppStoreConnectClient, treatment_id: str,
                    by_locale: dict[str, list[Path]], overwrite: bool) -> dict:
     """Заливает кадры в вариант. Возвращает, что получилось, для отчёта."""
     known = exp.treatment_localizations(client, treatment_id)
-    uploaded, left, failed = 0, [], []
+    timeout = env_int("SCREENSHOT_API_PROCESSING_TIMEOUT", PROCESSING_TIMEOUT)
+    uploaded, left, failed, skipped = 0, [], [], []
 
     for locale in sorted(by_locale):
         files = by_locale[locale]
-        localization_id = exp.ensure_localization(client, treatment_id, locale, known)
+        try:
+            localization_id = exp.ensure_localization(client, treatment_id, locale, known)
+        except AppStoreConnectError as error:
+            if LOCALE_NOT_IN_VERSION in str(error):
+                skipped.append(locale)
+            else:
+                failed.append(f"{locale}: {error}")
+            continue
 
         # Группируем по размеру экрана: набор кадров у Apple всегда про один
         # размер, и смешивать их в одном наборе нельзя.
@@ -204,13 +218,30 @@ def fill_treatment(client: AppStoreConnectClient, treatment_id: str,
             try:
                 set_id = replace_screenshot_set(
                     client, localization_id, display_type, False, EXPERIMENT_PARENT)
-                ids = [upload_screenshot(client, set_id, path, False) for path in group]
-                order_screenshots(client, set_id, ids, False)
+                # Как в основной заливке: все кадры, ждём обработку, потом
+                # порядок и сверка. Порядок, поставленный сразу после
+                # отправки, Apple отклонял (409 «reorder Set») или
+                # переписывал по времени обработки.
+                ids = upload_set(client, set_id, group, timeout, False,
+                                 f"{locale} / {display_type}")
                 uploaded += len(ids)
             except (AppStoreConnectError, OSError) as error:
                 failed.append(f"{locale} · {display_type}: {error}")
 
-    return {"uploaded": uploaded, "left": left, "failed": failed}
+    return {"uploaded": uploaded, "left": left, "failed": failed, "skipped": skipped}
+
+
+def same_name_treatment(experiment: dict, name: str) -> str:
+    """id варианта с таким же именем в тесте, или пустая строка.
+
+    Вариант без id ищем по имени, прежде чем заводить: повторная заливка
+    должна попасть в тот же вариант, а не создать рядом второй с тем же
+    именем — пустой дубль Apple показывает с кадрами основной страницы.
+    """
+    for treatment in experiment.get("treatments", []):
+        if (treatment.get("name") or "").strip() == name:
+            return treatment["id"]
+    return ""
 
 
 def count_in_store(client: AppStoreConnectClient, treatment_id: str) -> int:
@@ -296,6 +327,10 @@ def main() -> int:
             print(f"ERROR: варианта {treatment_id} в тесте нет", file=sys.stderr)
             return 1
         if not treatment_id:
+            treatment_id = same_name_treatment(found, name)
+            if treatment_id:
+                print(f"  вариант найден по имени: «{name}» ({treatment_id})")
+        if not treatment_id:
             created = exp.create_treatment(client, found["id"], name)
             treatment_id = created["id"]
             print(f"  вариант заведён: «{name}» ({treatment_id})")
@@ -322,6 +357,10 @@ def main() -> int:
 
         print(f"    локалей в архиве: {len(by_locale)}; залито кадров: "
               f"{result['uploaded']}; в сторе сейчас: {entry['in_store']}")
+        if result["skipped"]:
+            print(f"    пропущены языки, которых нет в версии приложения: "
+                  f"{', '.join(result['skipped'])}. Вариант теста повторяет "
+                  "страницу, поэтому язык сначала добавляют в версию.")
         for line in result["left"]:
             print(f"    оставлено как было: {line}")
         for line in result["failed"]:

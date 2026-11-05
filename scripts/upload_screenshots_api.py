@@ -690,44 +690,77 @@ def is_already_committed(message: str) -> bool:
     return " 409" in message and ("can't be re-committed" in message or "already Approved" in message)
 
 
+# Apple отвечает 409 с этим текстом, пока набор пересобирается после
+# обработки кадров: порядок в этот момент менять нельзя, надо подождать.
+REORDER_BUSY = "when reorder Set"
+# Ждём обработку всего набора разом; обычно это десятки секунд.
+PROCESSING_TIMEOUT = 300
+ORDER_ATTEMPTS = 6
+ORDER_PAUSE = 5
+
+
 def order_screenshots(client: AppStoreConnectClient, set_id: str, screenshot_ids: list[str], dry_run: bool) -> None:
     if dry_run:
         print(f"DRY RUN: would order {len(screenshot_ids)} screenshot(s) in set {set_id}")
         return
 
-    client.request(
-        "PATCH",
-        f"/appScreenshotSets/{set_id}/relationships/appScreenshots",
-        json={"data": [{"type": "appScreenshots", "id": screenshot_id} for screenshot_id in screenshot_ids]},
+    for attempt in range(1, ORDER_ATTEMPTS + 1):
+        try:
+            client.request(
+                "PATCH",
+                f"/appScreenshotSets/{set_id}/relationships/appScreenshots",
+                json={"data": [{"type": "appScreenshots", "id": screenshot_id} for screenshot_id in screenshot_ids]},
+            )
+            return
+        except AppStoreConnectError as error:
+            if REORDER_BUSY not in str(error) or attempt == ORDER_ATTEMPTS:
+                raise
+            print(f"Set {set_id} is busy re-sorting; retrying order in {ORDER_PAUSE} s...")
+            time.sleep(ORDER_PAUSE)
+
+
+def screenshot_states(client: AppStoreConnectClient, set_id: str) -> dict[str, Optional[str]]:
+    """Состояние обработки каждого кадра набора — одним запросом на весь набор."""
+    rows = client.get_all(
+        f"/appScreenshotSets/{set_id}/appScreenshots?fields[appScreenshots]=assetDeliveryState"
     )
+    return {
+        row["id"]: (row.get("attributes", {}).get("assetDeliveryState") or {}).get("state")
+        for row in rows
+    }
 
 
-def wait_for_processing(client: AppStoreConnectClient, screenshot_ids: list[str], timeout_seconds: int, dry_run: bool) -> None:
+def wait_for_processing(
+    client: AppStoreConnectClient,
+    set_id: str,
+    screenshot_ids: list[str],
+    timeout_seconds: int,
+    dry_run: bool,
+) -> None:
+    """Ждёт, пока Apple закончит обработку всех кадров набора.
+
+    Готово — только COMPLETE. UPLOAD_COMPLETE значит «файл получен», а
+    обработка ещё идёт; раньше мы считали его готовностью, порядок ставили
+    посреди обработки, и Apple потом пересобирал набор по времени готовности
+    кадров. Так в части языков кадры и менялись местами.
+    """
     if dry_run or timeout_seconds <= 0:
         return
 
     deadline = time.time() + timeout_seconds
     remaining = set(screenshot_ids)
-    while remaining and time.time() < deadline:
-        complete = set()
-        for screenshot_id in sorted(remaining):
-            screenshot = client.request(
-                "GET",
-                f"/appScreenshots/{screenshot_id}?fields[appScreenshots]=assetDeliveryState",
-            )["data"]
-            state = screenshot.get("attributes", {}).get("assetDeliveryState", {}).get("state")
-            if state in {"COMPLETE", "UPLOAD_COMPLETE"}:
-                complete.add(screenshot_id)
-            elif state == "FAILED":
-                raise AppStoreConnectError(f"Screenshot {screenshot_id} failed App Store processing")
-
-        remaining -= complete
-        if remaining:
-            print(f"Waiting for {len(remaining)} screenshot(s) to finish processing...")
-            time.sleep(5)
-
-    if remaining:
-        raise AppStoreConnectError(f"Timed out waiting for {len(remaining)} screenshot(s) to finish processing")
+    while True:
+        states = screenshot_states(client, set_id)
+        failed = [screenshot_id for screenshot_id in remaining if states.get(screenshot_id) == "FAILED"]
+        if failed:
+            raise AppStoreConnectError(f"Screenshot {failed[0]} failed App Store processing")
+        remaining = {screenshot_id for screenshot_id in remaining if states.get(screenshot_id) != "COMPLETE"}
+        if not remaining:
+            return
+        if time.time() >= deadline:
+            raise AppStoreConnectError(f"Timed out waiting for {len(remaining)} screenshot(s) to finish processing")
+        print(f"Waiting for {len(remaining)} screenshot(s) to finish processing...")
+        time.sleep(5)
 
 
 def list_set_screenshot_ids(client: AppStoreConnectClient, set_id: str) -> list[str]:
@@ -737,27 +770,61 @@ def list_set_screenshot_ids(client: AppStoreConnectClient, set_id: str) -> list[
     return [screenshot["id"] for screenshot in screenshots]
 
 
+VERIFY_ATTEMPTS = 3
+
+
 def verify_screenshot_order(
     client: AppStoreConnectClient,
     set_id: str,
     expected_ids: list[str],
     dry_run: bool,
 ) -> None:
+    """Сверяет порядок в наборе с задуманным; не совпал — ставит заново.
+
+    Не встал и после повторов — ошибка, а не предупреждение: язык уйдёт на
+    повторную заливку, а не останется в сторе перемешанным молча.
+    """
     if dry_run or not expected_ids:
         return
 
-    if list_set_screenshot_ids(client, set_id) == expected_ids:
-        return
+    for attempt in range(1, VERIFY_ATTEMPTS + 1):
+        if list_set_screenshot_ids(client, set_id) == expected_ids:
+            return
+        if attempt == VERIFY_ATTEMPTS:
+            break
+        print(f"Screenshot order mismatch in set {set_id}; re-applying intended order...")
+        time.sleep(ORDER_PAUSE)
+        order_screenshots(client, set_id, expected_ids, dry_run)
 
-    print(f"Screenshot order mismatch in set {set_id}; re-applying intended order...")
-    order_screenshots(client, set_id, expected_ids, dry_run)
+    raise AppStoreConnectError(
+        f"App Store Connect keeps a different screenshot order for set {set_id} "
+        f"after {VERIFY_ATTEMPTS} attempts"
+    )
 
-    if list_set_screenshot_ids(client, set_id) != expected_ids:
-        print(
-            f"WARNING: App Store Connect still reports a different screenshot order for set {set_id} "
-            "after re-applying. Check the order manually.",
-            file=sys.stderr,
-        )
+
+def upload_set(
+    client: AppStoreConnectClient,
+    set_id: str,
+    images: list[Path],
+    timeout_seconds: int,
+    dry_run: bool,
+    label: str = "",
+) -> list[str]:
+    """Заливает кадры в набор и закрепляет их порядок.
+
+    Порядок шагов важен. Apple выстраивает набор по времени, когда кадр
+    закончил обработку, а не по очереди отправки. Поэтому: отправляем все
+    кадры, ждём, пока обработка закончится у всех, и только тогда ставим
+    порядок и сверяем его. Поставленный раньше порядок Apple перепишет.
+    """
+    screenshot_ids: list[str] = []
+    for position, image in enumerate(images, start=1):
+        print(f"Screenshot {position}/{len(images)} for {label}: {image.name} ({image.stat().st_size} bytes)")
+        screenshot_ids.append(upload_screenshot(client, set_id, image, dry_run))
+    wait_for_processing(client, set_id, screenshot_ids, timeout_seconds, dry_run)
+    order_screenshots(client, set_id, screenshot_ids, dry_run)
+    verify_screenshot_order(client, set_id, screenshot_ids, dry_run)
+    return screenshot_ids
 
 
 def grouped_images(locale_dir: Path) -> dict[str, list[Path]]:
@@ -818,27 +885,13 @@ def main() -> int:
     localization = find_or_create_localization(client, version["id"], args.locale, dry_run)
     log_info(f"Using localization id {localization['id']} for {args.locale}")
     groups = grouped_images(locale_dir)
-    processing_timeout = env_int("SCREENSHOT_API_PROCESSING_TIMEOUT", 180)
+    processing_timeout = env_int("SCREENSHOT_API_PROCESSING_TIMEOUT", PROCESSING_TIMEOUT)
     log_info(f"Screenshot groups: {', '.join(f'{key}={len(value)}' for key, value in sorted(groups.items()))}")
 
     for display_type, images in sorted(groups.items()):
         log_info(f"Uploading {len(images)} screenshot(s) for {args.locale} / {display_type}...")
         set_id = replace_screenshot_set(client, localization["id"], display_type, dry_run)
-        # Upload one screenshot at a time and wait for each to finish processing before
-        # sending the next. App Store Connect orders a batch by processing-completion time,
-        # so a parallel upload comes out shuffled; sequential upload keeps the intended order.
-        screenshot_ids: list[str] = []
-        for position, image in enumerate(images, start=1):
-            log_info(
-                f"Screenshot {position}/{len(images)} for {args.locale} / {display_type}: "
-                f"{image.name} ({image.stat().st_size} bytes)"
-            )
-            screenshot_id = upload_screenshot(client, set_id, image, dry_run)
-            wait_for_processing(client, [screenshot_id], processing_timeout, dry_run)
-            screenshot_ids.append(screenshot_id)
-        # Pin the final display order once every screenshot is processed, then confirm it stuck.
-        order_screenshots(client, set_id, screenshot_ids, dry_run)
-        verify_screenshot_order(client, set_id, screenshot_ids, dry_run)
+        upload_set(client, set_id, images, processing_timeout, dry_run, f"{args.locale} / {display_type}")
 
     log_info(f"Uploaded screenshots for {args.locale} through App Store Connect API.")
     log_step_done(f"Screenshot API upload: {args.locale}", 0)

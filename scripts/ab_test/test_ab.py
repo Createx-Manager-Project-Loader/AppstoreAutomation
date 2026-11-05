@@ -111,5 +111,57 @@ for state in ["RUNNING", "STOPPED", "COMPLETED"]:
     except AttributeError:
         check(f"удаление запрещено в {state}", "разрешено", "запрещено")
 
+# ── варианты теста видны ───────────────────────────────────────────────────
+# Apple отдаёт связь только если она есть в fields[...]. Её не было — у всех
+# тестов было «без вариантов», и заливка заводила дубли.
+class ListClient:
+    def __init__(self):
+        self.paths = []
+
+    def request(self, method, path, **kwargs):
+        self.paths.append(path)
+        if "appStoreVersions?" in path or "/appStoreVersions" in path and "Experiments" not in path:
+            return {"data": [{"id": "v1", "attributes": {"appStoreState": "READY_FOR_SALE"}}]}
+        return {
+            "data": [{"id": "e1", "attributes": {"name": "26.10", "state": "PREPARE_FOR_SUBMISSION"},
+                      "relationships": {"appStoreVersionExperimentTreatments": {
+                          "data": [{"type": "appStoreVersionExperimentTreatments", "id": "t1"}]}}}],
+            "included": [{"type": "appStoreVersionExperimentTreatments", "id": "t1",
+                          "attributes": {"name": "Treatment A"}}],
+        }
+
+
+exp.live_version_id = lambda client, app_id: "v1"
+lc = ListClient()
+listed = exp.list_experiments(lc, "app")
+check("связь с вариантами запрошена в fields",
+      "fields[appStoreVersionExperiments]=" in lc.paths[-1]
+      and "appStoreVersionExperimentTreatments&include" in lc.paths[-1], True)
+check("вариант теста виден", [(t["id"], t["name"]) for t in listed[0]["treatments"]],
+      [("t1", "Treatment A")])
+
+# ── повторная заливка попадает в тот же вариант ────────────────────────────
+check("вариант находится по имени", upload.same_name_treatment(listed[0], "Treatment A"), "t1")
+check("чужое имя — новый вариант", upload.same_name_treatment(listed[0], "Treatment B"), "")
+
+
+# ── язык, которого нет в версии, пропускается, а не роняет прогон ──────────
+def no_locale(client, treatment_id, locale, known):
+    if locale == "el":
+        raise upload.AppStoreConnectError(
+            'POST x failed with 409: {"detail": "Locale is not configured in app version"}')
+    return f"loc-{locale}"
+
+
+exp.treatment_localizations = lambda client, treatment_id: {}
+exp.ensure_localization = no_locale
+upload.list_screenshot_sets = lambda client, localization_id, parent: []
+upload.replace_screenshot_set = lambda client, localization_id, display_type, dry, parent: "set"
+upload.display_type_for_image = lambda path: "APP_IPHONE_67"
+upload.upload_set = lambda client, set_id, group, timeout, dry, label: [p.name for p in group]
+got = upload.fill_treatment(None, "t1", {"el": [Path("1.png")], "en-US": [Path("1.png"), Path("2.png")]}, False)
+check("язык не из версии — в пропущенных", got["skipped"], ["el"])
+check("остальные языки залиты", (got["uploaded"], got["failed"]), (2, []))
+
 print("ИТОГ:", "всё ок" if OK else "ЕСТЬ ОШИБКИ")
 raise SystemExit(0 if OK else 1)
