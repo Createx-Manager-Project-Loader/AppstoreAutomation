@@ -55,9 +55,32 @@ def versions_of(client, app_id: str) -> list[dict]:
     response = client.request(
         "GET",
         f"/apps/{app_id}/appStoreVersions?filter[platform]=IOS&limit=20"
-        "&fields[appStoreVersions]=versionString,appStoreState,appVersionState,createdDate,releaseType",
+        # Связь обязана стоять в fields — иначе Apple её не отдаст даже при include.
+        "&fields[appStoreVersions]=versionString,appStoreState,appVersionState,createdDate,releaseType,"
+        "earliestReleaseDate,appStoreVersionPhasedRelease"
+        "&include=appStoreVersionPhasedRelease"
+        "&fields[appStoreVersionPhasedReleases]=phasedReleaseState,startDate,currentDayNumber",
     )
-    return sorted(response.get("data") or [], key=lambda v: (v.get("attributes") or {}).get("createdDate") or "", reverse=True)
+    phased = {item["id"]: item.get("attributes") or {}
+              for item in response.get("included") or []
+              if item.get("type") == "appStoreVersionPhasedReleases"}
+    versions = response.get("data") or []
+    for v in versions:
+        ref = ((v.get("relationships") or {}).get("appStoreVersionPhasedRelease") or {}).get("data")
+        v["phased"] = phased.get(ref["id"]) if ref else None
+    return sorted(versions, key=lambda v: (v.get("attributes") or {}).get("createdDate") or "", reverse=True)
+
+
+def phased_of(version: dict) -> dict | None:
+    """Поэтапная раскатка версии: состояние и день из 7, или None — выключена."""
+    attributes = version.get("phased")
+    if attributes is None:
+        return None
+    return {
+        "state": attributes.get("phasedReleaseState"),
+        "day": attributes.get("currentDayNumber"),
+        "startDate": attributes.get("startDate"),
+    }
 
 
 def section_status(client, app: dict, prev: dict, by: str | None) -> dict:
@@ -72,6 +95,8 @@ def section_status(client, app: dict, prev: dict, by: str | None) -> dict:
             "raw": status_lib.raw_state(v),
             "createdAt": (v.get("attributes") or {}).get("createdDate"),
             "release": (v.get("attributes") or {}).get("releaseType"),
+            "releaseDate": (v.get("attributes") or {}).get("earliestReleaseDate"),
+            "phased": phased_of(v),
         }
         for v in versions[:5]
     ]
