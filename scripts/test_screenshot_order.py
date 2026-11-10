@@ -135,6 +135,39 @@ class OrderTest(unittest.TestCase):
         with self.assertRaisesRegex(m.AppStoreConnectError, "keeps a different screenshot order"):
             m.verify_screenshot_order(store, "set-1", ["a", "b"], False)
 
+    def test_deferred_upload_then_finalize_sets_order(self):
+        store = FakeStore()
+        ids = m.upload_set(store, "set-1", self.images, 300, False, "en-US", finalize=False)
+        self.assertEqual(store.polls, 0, "без ожидания при заливке")
+        self.assertEqual(store.patches, 0)
+        result = m.finalize_sets(store, [{"locale": "en-US", "set_id": "set-1", "ids": ids, "label": "en-US"}])
+        self.assertEqual(result, {"done": ["en-US"], "failed": {}, "unfinished": []})
+        self.assertEqual(store.order, ids)
+
+    def test_finalize_never_reuploads_slow_sets(self):
+        store = FakeStore(polls_to_finish=10**6)
+        ids = m.upload_set(store, "set-1", self.images, 300, False, "en-US", finalize=False)
+        before = store.next_id
+        result = m.finalize_sets(store, [{"locale": "en-US", "set_id": "set-1", "ids": ids}], timeout_seconds=0)
+        self.assertEqual(result["unfinished"], ["en-US"])
+        self.assertEqual(result["done"], [])
+        self.assertEqual(store.next_id, before, "ничего не перезаливаем")
+        self.assertEqual(store.patches, 0, "порядок посреди обработки не ставим")
+
+    def test_finalize_reports_rejected_screenshot(self):
+        store = FakeStore(failed="shot-2")
+        ids = m.upload_set(store, "set-1", self.images, 300, False, "de-DE", finalize=False)
+        result = m.finalize_sets(store, [{"locale": "de-DE", "set_id": "set-1", "ids": ids}])
+        self.assertIn("de-DE", result["failed"])
+        self.assertEqual(result["done"], [])
+
+    def test_manifest_roundtrip(self):
+        path = Path(self.dir.name) / "manifest.jsonl"
+        m.append_manifest(path, [{"locale": "en-US", "set_id": "s1", "ids": ["a"]}])
+        m.append_manifest(path, [{"locale": "fr-FR", "set_id": "s2", "ids": ["b", "c"]}])
+        self.assertEqual([e["locale"] for e in m.read_manifest(path)], ["en-US", "fr-FR"])
+        self.assertEqual(m.read_manifest(Path(self.dir.name) / "missing.jsonl"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,11 @@ source "$LIB_DIR/report.sh"
 
 PREPARED_SCREENSHOTS_DIR="$PREPARED_DIR/screenshots"
 ONE_LOCALE_DIR="$PREPARED_DIR/one_locale_screenshots"
+# Языки заливаются без ожидания обработки у Apple; порядок кадров ставит один
+# общий проход в конце (upload_screenshots_api.py --finalize), когда Apple
+# обработал наборы. Раньше каждый язык ждал до 5 минут и перезаливался по кругу.
+ORDER_MANIFEST="$PREPARED_DIR/screenshot_order_manifest.jsonl"
+ORDER_RESULT="$PREPARED_DIR/screenshot_order_result.json"
 DELAY_SECONDS="${SCREENSHOT_UPLOAD_DELAY_SECONDS:-0}"
 RETRY_DELAY_SECONDS="${SCREENSHOT_UPLOAD_RETRY_DELAY_SECONDS:-5}"
 MAX_ATTEMPTS="${SCREENSHOT_UPLOAD_MAX_ATTEMPTS:-5}"
@@ -39,6 +44,7 @@ fi
 
 uploaded_locales=()
 failed_locales=()
+rm -f "$ORDER_MANIFEST" "$ORDER_RESULT"
 
 run_api_upload() {
   local locale="$1"
@@ -50,6 +56,7 @@ run_api_upload() {
   python3 "$SCRIPT_DIR/upload_screenshots_api.py" \
     --locale "$locale" \
     --screenshots-path "$ONE_LOCALE_DIR" \
+    --order-manifest "$ORDER_MANIFEST" \
     > >(tee "$log_file") \
     2> >(tee -a "$log_file" >&2)
 }
@@ -101,11 +108,47 @@ done
 
 rm -rf "$ONE_LOCALE_DIR"
 
+# Порядок кадров: ждём обработку всех залитых наборов разом, ставим и сверяем.
+# Не встал или Apple не дообработал — язык в ошибки, но наборы не трогаем.
+if [[ "${#uploaded_locales[@]}" -gt 0 ]]; then
+  order_log="$PREPARED_DIR/api_screenshots_order.log"
+  rm -f "$order_log"
+  python3 "$SCRIPT_DIR/upload_screenshots_api.py" \
+    --finalize "$ORDER_MANIFEST" \
+    --result "$ORDER_RESULT" \
+    > >(tee "$order_log") \
+    2> >(tee -a "$order_log" >&2) || true
+
+  order_bad=()
+  if [[ -f "$ORDER_RESULT" ]]; then
+    while IFS= read -r locale; do
+      [[ -n "$locale" ]] && order_bad+=("$locale")
+    done < <(python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print("\n".join(sorted(set(r["failed"]) | set(r["unfinished"]))))' "$ORDER_RESULT")
+  else
+    # Проход не дошёл до итога (упал до запросов) — порядок не проверен ни у кого.
+    order_bad=("${uploaded_locales[@]}")
+  fi
+
+  if [[ "${#order_bad[@]}" -gt 0 ]]; then
+    kept=()
+    for locale in "${uploaded_locales[@]}"; do
+      if [[ " ${order_bad[*]} " == *" $locale "* ]]; then
+        failed_locales+=("$locale")
+        report_locale_failure screenshots "$locale" screenshots 1 "$order_log" >/dev/null
+      else
+        kept+=("$locale")
+      fi
+    done
+    uploaded_locales=("${kept[@]+"${kept[@]}"}")
+    report_warning "Screenshot order not confirmed for ${#order_bad[@]} locale(s): ${order_bad[*]}"
+  fi
+fi
+
 report_merge screenshots \
   total="$total_locales" \
   uploaded="${#uploaded_locales[@]}" \
   failed="${#failed_locales[@]}" \
-  uploaded_locales="${uploaded_locales[*]}" \
+  uploaded_locales="${uploaded_locales[*]-}" \
   failed_locales="${failed_locales[*]-}"
 
 echo "Sequential screenshot upload completed: ${#uploaded_locales[@]} / $total_locales locale(s)."

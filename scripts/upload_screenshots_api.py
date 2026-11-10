@@ -809,6 +809,7 @@ def upload_set(
     timeout_seconds: int,
     dry_run: bool,
     label: str = "",
+    finalize: bool = True,
 ) -> list[str]:
     """Заливает кадры в набор и закрепляет их порядок.
 
@@ -821,10 +822,86 @@ def upload_set(
     for position, image in enumerate(images, start=1):
         print(f"Screenshot {position}/{len(images)} for {label}: {image.name} ({image.stat().st_size} bytes)")
         screenshot_ids.append(upload_screenshot(client, set_id, image, dry_run))
+    if not finalize:
+        # Порядок поставит общий проход finalize_sets после заливки всех языков.
+        return screenshot_ids
     wait_for_processing(client, set_id, screenshot_ids, timeout_seconds, dry_run)
     order_screenshots(client, set_id, screenshot_ids, dry_run)
     verify_screenshot_order(client, set_id, screenshot_ids, dry_run)
     return screenshot_ids
+
+
+# Общий проход по всем наборам прогона: ждём обработку разом и ставим порядок.
+FINALIZE_TIMEOUT = 1200
+FINALIZE_POLL = 10
+
+
+def finalize_sets(
+    client: AppStoreConnectClient,
+    entries: list[dict[str, Any]],
+    timeout_seconds: int = FINALIZE_TIMEOUT,
+    poll_seconds: int = FINALIZE_POLL,
+) -> dict[str, Any]:
+    """Ставит порядок кадров во всех залитых наборах, когда Apple их обработал.
+
+    Раньше каждый язык ждал свою обработку до 5 минут, а не дождался — набор
+    удалялся и заливался заново, и обработка начиналась с нуля: прогон шёл
+    часами. Теперь языки заливаются подряд без ожидания, Apple обрабатывает их
+    параллельно, а здесь один проход: набор готов (все кадры COMPLETE) — ставим
+    порядок и сверяем. Порядок по-прежнему только после полной обработки, иначе
+    Apple его перепишет.
+
+    Ничего не удаляет и не перезаливает. Возвращает locale-ы по итогу:
+    done — порядок стоит; failed — Apple отклонил кадр или порядок не встал;
+    unfinished — Apple не обработал кадры за отведённое время.
+    """
+    pending = list(entries)
+    done: list[str] = []
+    failed: dict[str, str] = {}
+    deadline = time.time() + timeout_seconds
+    while pending:
+        still: list[dict[str, Any]] = []
+        for entry in pending:
+            locale, set_id, ids = entry["locale"], entry["set_id"], entry["ids"]
+            if locale in failed:
+                continue
+            try:
+                states = screenshot_states(client, set_id)
+                if any(states.get(i) == "FAILED" for i in ids):
+                    failed[locale] = f"Apple rejected a screenshot in {entry.get('label') or set_id}"
+                    continue
+                if any(states.get(i) != "COMPLETE" for i in ids):
+                    still.append(entry)
+                    continue
+                order_screenshots(client, set_id, ids, False)
+                verify_screenshot_order(client, set_id, ids, False)
+                print(f"Order set for {entry.get('label') or set_id}")
+            except AppStoreConnectError as error:
+                failed[locale] = str(error)
+        pending = still
+        if not pending or time.time() >= deadline:
+            break
+        print(f"Waiting for App Store processing in {len(pending)} screenshot set(s)...")
+        time.sleep(poll_seconds)
+
+    unfinished = sorted({e["locale"] for e in pending} - set(failed))
+    for entry in entries:
+        locale = entry["locale"]
+        if locale not in failed and locale not in unfinished and locale not in done:
+            done.append(locale)
+    return {"done": done, "failed": failed, "unfinished": unfinished}
+
+
+def read_manifest(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def append_manifest(path: Path, entries: list[dict[str, Any]]) -> None:
+    with path.open("a") as handle:
+        for entry in entries:
+            handle.write(json.dumps(entry) + "\n")
 
 
 def grouped_images(locale_dir: Path) -> dict[str, list[Path]]:
@@ -844,10 +921,58 @@ def grouped_images(locale_dir: Path) -> dict[str, list[Path]]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Upload App Store screenshots through App Store Connect API.")
-    parser.add_argument("--locale", required=True, help="App Store Connect locale, for example en-US.")
-    parser.add_argument("--screenshots-path", required=True, type=Path, help="Directory containing locale folders.")
+    parser.add_argument("--locale", help="App Store Connect locale, for example en-US.")
+    parser.add_argument("--screenshots-path", type=Path, help="Directory containing locale folders.")
+    parser.add_argument(
+        "--order-manifest",
+        type=Path,
+        help="Upload without waiting for processing; append set ids here for a later --finalize pass.",
+    )
+    parser.add_argument(
+        "--finalize",
+        type=Path,
+        metavar="MANIFEST",
+        help="Wait for processing of every set in MANIFEST, then set and verify screenshot order.",
+    )
+    parser.add_argument("--result", type=Path, help="With --finalize: write the outcome JSON here.")
     parser.add_argument("--dry-run", action="store_true", help="Resolve app/version/localization and print actions only.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.finalize and (not args.locale or not args.screenshots_path):
+        parser.error("--locale and --screenshots-path are required unless --finalize is given")
+    return args
+
+
+def make_client() -> AppStoreConnectClient:
+    return AppStoreConnectClient(
+        key_id=require_env("ASC_KEY_ID"),
+        issuer_id=require_env("ASC_ISSUER_ID"),
+        key_path=Path(require_env("ASC_KEY_PATH")),
+        timeout=env_int("SCREENSHOT_API_REQUEST_TIMEOUT", 60),
+        max_retries=env_int("SCREENSHOT_API_MAX_RETRIES", 5),
+    )
+
+
+def finalize_main(manifest: Path, result_path: Optional[Path]) -> int:
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    from log import log_info, log_step, log_step_done, log_warn
+
+    log_step("Screenshot order")
+    entries = read_manifest(manifest)
+    result: dict[str, Any] = {"done": [], "failed": {}, "unfinished": []}
+    if entries:
+        timeout = env_int("SCREENSHOT_FINALIZE_TIMEOUT", FINALIZE_TIMEOUT)
+        log_info(f"Waiting for App Store processing of {len(entries)} set(s), up to {timeout} s, then setting order...")
+        result = finalize_sets(make_client(), entries, timeout)
+    for locale, reason in result["failed"].items():
+        log_warn(f"Screenshot order failed for {locale}: {reason}")
+    if result["unfinished"]:
+        log_warn(f"Apple has not finished processing screenshots for: {' '.join(result['unfinished'])}")
+    log_info(f"Screenshot order set for {len(result['done'])} locale(s).")
+    if result_path:
+        result_path.write_text(json.dumps(result))
+    ok = not result["failed"] and not result["unfinished"]
+    log_step_done("Screenshot order", 0 if ok else 1)
+    return 0 if ok else 1
 
 
 def main() -> int:
@@ -855,6 +980,8 @@ def main() -> int:
     from log import log_debug, log_info, log_step, log_step_done, log_warn
 
     args = parse_args()
+    if args.finalize:
+        return finalize_main(args.finalize, args.result)
     locale_dir = args.screenshots_path / args.locale
     if not locale_dir.is_dir():
         raise AppStoreConnectError(f"Missing locale screenshot directory: {locale_dir}")
@@ -864,14 +991,7 @@ def main() -> int:
     dry_run = args.dry_run or env_bool("SCREENSHOT_API_DRY_RUN")
     if dry_run:
         log_warn("Screenshot API dry-run enabled")
-    key_path = Path(require_env("ASC_KEY_PATH"))
-    client = AppStoreConnectClient(
-        key_id=require_env("ASC_KEY_ID"),
-        issuer_id=require_env("ASC_ISSUER_ID"),
-        key_path=key_path,
-        timeout=env_int("SCREENSHOT_API_REQUEST_TIMEOUT", 60),
-        max_retries=env_int("SCREENSHOT_API_MAX_RETRIES", 5),
-    )
+    client = make_client()
 
     app = find_app(client, require_env("APP_IDENTIFIER"))
     log_info(f"Resolved app id: {app['id']}")
@@ -888,10 +1008,19 @@ def main() -> int:
     processing_timeout = env_int("SCREENSHOT_API_PROCESSING_TIMEOUT", PROCESSING_TIMEOUT)
     log_info(f"Screenshot groups: {', '.join(f'{key}={len(value)}' for key, value in sorted(groups.items()))}")
 
+    deferred = args.order_manifest is not None and not dry_run
+    entries: list[dict[str, Any]] = []
     for display_type, images in sorted(groups.items()):
         log_info(f"Uploading {len(images)} screenshot(s) for {args.locale} / {display_type}...")
         set_id = replace_screenshot_set(client, localization["id"], display_type, dry_run)
-        upload_set(client, set_id, images, processing_timeout, dry_run, f"{args.locale} / {display_type}")
+        label = f"{args.locale} / {display_type}"
+        ids = upload_set(client, set_id, images, processing_timeout, dry_run, label, finalize=not deferred)
+        entries.append({"locale": args.locale, "set_id": set_id, "ids": ids, "label": label})
+    if deferred:
+        # Пишем только после заливки всех наборов языка: у неудачной попытки
+        # наборы потом удалит повтор, и в общий проход они попасть не должны.
+        append_manifest(args.order_manifest, entries)
+        log_info(f"Order for {args.locale} will be set after all locales are uploaded.")
 
     log_info(f"Uploaded screenshots for {args.locale} through App Store Connect API.")
     log_step_done(f"Screenshot API upload: {args.locale}", 0)
