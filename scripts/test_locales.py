@@ -83,6 +83,28 @@ def main():
                 placed(mixed) == [("ru", "1.jpg")])
     os.environ.pop("SCREENSHOTS_DEFAULT_LOCALE", None)
 
+    # Нумерация 01, 02… — по именам, а не по порядку файлов в архиве (Locator 55:
+    # в ZIP «Screen 03» лежал первым, и в сторе кадры встали не так).
+    shuffled = work / "shuffled.zip"
+    with zf.ZipFile(shuffled, "w") as out:
+        for name in ["en-US/Screen 03.png", "en-US/Screen 10.png", "en-US/Screen 01.png",
+                     "en-US/Screen 2.png", "de-DE/Screen 02.png", "de-DE/Screen 01.png"]:
+            out.writestr(name, name.encode())
+    pm.has_screenshots_source = lambda: True
+    pm.screenshots_zip_path = lambda: shuffled
+    pm.PREPARED_SCREENSHOTS_DIR = work / "prepared"
+    pm.prepare_screenshots_from_zip()
+
+    def numbered(locale):
+        folder = pm.PREPARED_SCREENSHOTS_DIR / locale
+        return [(f.name, f.read_bytes().decode().split("/")[1]) for f in sorted(folder.iterdir())]
+
+    ok &= check("en-US: 01…04 по именам, Screen 2 раньше Screen 10",
+                numbered("en-US") == [("01.png", "Screen 01.png"), ("02.png", "Screen 2.png"),
+                                      ("03.png", "Screen 03.png"), ("04.png", "Screen 10.png")])
+    ok &= check("de-DE: своя нумерация с 01",
+                numbered("de-DE") == [("01.png", "Screen 01.png"), ("02.png", "Screen 02.png")])
+
     print("\nИтог:", "всё сходится" if ok else "есть расхождения")
     return 0 if ok else 1
 

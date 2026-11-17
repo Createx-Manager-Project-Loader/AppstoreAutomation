@@ -1266,6 +1266,20 @@ def unmatched_screenshot_folders(zip_file):
     return unmatched
 
 
+def screenshot_name_key(relative_path):
+    """Порядок кадров по имени, числа — как числа: Screen 2 раньше Screen 10.
+
+    Нумерация 01, 02… задаёт порядок в сторе. Раньше она шла по порядку файлов
+    внутри ZIP, а его задаёт архиватор (Finder, Google Drive), а не имена —
+    так у Locator 55 кадр «Screen 01» уехал третьим во всех языках.
+    """
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part.lower())
+        for part in re.split(r"(\d+)", str(relative_path))
+        if part
+    ]
+
+
 def clean_prepared_screenshots():
     if PREPARED_SCREENSHOTS_DIR.exists():
         shutil.rmtree(PREPARED_SCREENSHOTS_DIR)
@@ -1290,7 +1304,11 @@ def prepare_screenshots_from_zip():
     copied = 0
     per_locale_counts = {}
     with zipfile.ZipFile(zip_path) as zip_file:
-        for member, locale, relative_path in safe_zip_members(zip_file):
+        members = sorted(
+            safe_zip_members(zip_file),
+            key=lambda item: (item[1], screenshot_name_key(item[2])),
+        )
+        for member, locale, relative_path in members:
             per_locale_counts[locale] = per_locale_counts.get(locale, 0) + 1
             target_name = f"{per_locale_counts[locale]:02d}{Path(member.filename).suffix.lower()}"
             target = PREPARED_SCREENSHOTS_DIR / locale / target_name
