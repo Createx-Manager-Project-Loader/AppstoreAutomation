@@ -834,6 +834,14 @@ def upload_set(
 # Общий проход по всем наборам прогона: ждём обработку разом и ставим порядок.
 FINALIZE_TIMEOUT = 1200
 FINALIZE_POLL = 10
+# Набор, только что ставший COMPLETE, Apple ещё может пересобрать по времени
+# готовности кадров — уже после нашего порядка и сверки (Locator 55, 17.11:
+# порядок встал и сверился во всех языках, а в части потом поехал). Поэтому
+# порядок — не раньше чем через минуту после заливки набора, а потом
+# перепроверка всех наборов: поехал — ставим снова, пока круг не пройдёт чисто.
+SETTLE_SECONDS = 60
+RECHECK_SECONDS = 90
+RECHECK_ROUNDS = 4
 
 
 def finalize_sets(
@@ -841,6 +849,9 @@ def finalize_sets(
     entries: list[dict[str, Any]],
     timeout_seconds: int = FINALIZE_TIMEOUT,
     poll_seconds: int = FINALIZE_POLL,
+    settle_seconds: int = SETTLE_SECONDS,
+    recheck_seconds: int = RECHECK_SECONDS,
+    recheck_rounds: int = RECHECK_ROUNDS,
 ) -> dict[str, Any]:
     """Ставит порядок кадров во всех залитых наборах, когда Apple их обработал.
 
@@ -851,6 +862,9 @@ def finalize_sets(
     порядок и сверяем. Порядок по-прежнему только после полной обработки, иначе
     Apple его перепишет.
 
+    COMPLETE — ещё не конец: Apple может пересобрать набор чуть позже. Поэтому
+    набор младше settle_seconds ждёт, а после всех — перепроверка (см. SETTLE_SECONDS).
+
     Ничего не удаляет и не перезаливает. Возвращает locale-ы по итогу:
     done — порядок стоит; failed — Apple отклонил кадр или порядок не встал;
     unfinished — Apple не обработал кадры за отведённое время.
@@ -858,6 +872,7 @@ def finalize_sets(
     pending = list(entries)
     done: list[str] = []
     failed: dict[str, str] = {}
+    ordered: list[dict[str, Any]] = []
     deadline = time.time() + timeout_seconds
     while pending:
         still: list[dict[str, Any]] = []
@@ -873,8 +888,12 @@ def finalize_sets(
                 if any(states.get(i) != "COMPLETE" for i in ids):
                     still.append(entry)
                     continue
+                if entry.get("at") and time.time() - entry["at"] < settle_seconds:
+                    still.append(entry)
+                    continue
                 order_screenshots(client, set_id, ids, False)
                 verify_screenshot_order(client, set_id, ids, False)
+                ordered.append(entry)
                 print(f"Order set for {entry.get('label') or set_id}")
             except AppStoreConnectError as error:
                 failed[locale] = str(error)
@@ -884,12 +903,53 @@ def finalize_sets(
         print(f"Waiting for App Store processing in {len(pending)} screenshot set(s)...")
         time.sleep(poll_seconds)
 
+    recheck_order(client, ordered, failed, recheck_seconds, recheck_rounds)
+
     unfinished = sorted({e["locale"] for e in pending} - set(failed))
     for entry in entries:
         locale = entry["locale"]
         if locale not in failed and locale not in unfinished and locale not in done:
             done.append(locale)
     return {"done": done, "failed": failed, "unfinished": unfinished}
+
+
+def recheck_order(
+    client: AppStoreConnectClient,
+    ordered: list[dict[str, Any]],
+    failed: dict[str, str],
+    pause_seconds: int,
+    rounds: int,
+) -> None:
+    """Перепроверяет порядок во всех наборах, пока круг не пройдёт без сдвигов.
+
+    Сдвинулся — ставим заново и ждём следующий круг. Сдвигается и на последнем
+    круге — язык в failed: лучше повтор и предупреждение, чем перемешанный стор молча.
+    """
+    if not ordered or rounds <= 0:
+        return
+    print(f"Re-checking screenshot order in {len(ordered)} set(s) in {pause_seconds} s...")
+    for round_number in range(1, rounds + 1):
+        time.sleep(pause_seconds)
+        drifted: list[dict[str, Any]] = []
+        for entry in ordered:
+            if entry["locale"] in failed:
+                continue
+            label = entry.get("label") or entry["set_id"]
+            try:
+                if list_set_screenshot_ids(client, entry["set_id"]) == entry["ids"]:
+                    continue
+                print(f"Order drifted in {label}; setting it again...")
+                order_screenshots(client, entry["set_id"], entry["ids"], False)
+                verify_screenshot_order(client, entry["set_id"], entry["ids"], False)
+                drifted.append(entry)
+            except AppStoreConnectError as error:
+                failed[entry["locale"]] = str(error)
+        if not drifted:
+            print(f"Screenshot order is stable (check {round_number}).")
+            return
+        if round_number == rounds:
+            for entry in drifted:
+                failed[entry["locale"]] = f"Screenshot order keeps changing in {entry.get('label') or entry['set_id']}"
 
 
 def read_manifest(path: Path) -> list[dict[str, Any]]:
@@ -962,7 +1022,13 @@ def finalize_main(manifest: Path, result_path: Optional[Path]) -> int:
     if entries:
         timeout = env_int("SCREENSHOT_FINALIZE_TIMEOUT", FINALIZE_TIMEOUT)
         log_info(f"Waiting for App Store processing of {len(entries)} set(s), up to {timeout} s, then setting order...")
-        result = finalize_sets(make_client(), entries, timeout)
+        result = finalize_sets(
+            make_client(),
+            entries,
+            timeout,
+            settle_seconds=env_int("SCREENSHOT_ORDER_SETTLE", SETTLE_SECONDS),
+            recheck_seconds=env_int("SCREENSHOT_ORDER_RECHECK", RECHECK_SECONDS),
+        )
     for locale, reason in result["failed"].items():
         log_warn(f"Screenshot order failed for {locale}: {reason}")
     if result["unfinished"]:
@@ -1015,7 +1081,7 @@ def main() -> int:
         set_id = replace_screenshot_set(client, localization["id"], display_type, dry_run)
         label = f"{args.locale} / {display_type}"
         ids = upload_set(client, set_id, images, processing_timeout, dry_run, label, finalize=not deferred)
-        entries.append({"locale": args.locale, "set_id": set_id, "ids": ids, "label": label})
+        entries.append({"locale": args.locale, "set_id": set_id, "ids": ids, "label": label, "at": time.time()})
     if deferred:
         # Пишем только после заливки всех наборов языка: у неудачной попытки
         # наборы потом удалит повтор, и в общий проход они попасть не должны.

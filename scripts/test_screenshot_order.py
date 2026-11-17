@@ -161,6 +161,87 @@ class OrderTest(unittest.TestCase):
         self.assertIn("de-DE", result["failed"])
         self.assertEqual(result["done"], [])
 
+    def test_late_resort_is_caught_and_fixed(self):
+        # Locator 55: порядок встал и сверился, а Apple потом пересобрал набор по времени готовности.
+        store = FakeStore()
+        ids = m.upload_set(store, "set-1", self.images, 300, False, "en-US", finalize=False)
+        real_patch = store.request
+        resorted = {"done": False}
+
+        def request(method, path, **kwargs):
+            out = real_patch(method, path, **kwargs)
+            return out
+
+        original_get_all = store.get_all
+        reads = {"n": 0}
+
+        def get_all(path):
+            rows = original_get_all(path)
+            if "assetDeliveryState" not in path and store.patches == 1 and not resorted["done"]:
+                reads["n"] += 1
+                if reads["n"] == 2:  # сверка прошла, на перепроверке набор уже другой
+                    resorted["done"] = True
+                    store.order = list(store.finished)
+                    return [{"id": s} for s in store.order]
+            return rows
+
+        store.request = request
+        store.get_all = get_all
+        result = m.finalize_sets(store, [{"locale": "en-US", "set_id": "set-1", "ids": ids}], recheck_seconds=0)
+        self.assertTrue(resorted["done"])
+        self.assertEqual(result["done"], ["en-US"])
+        self.assertEqual(store.order, ids)
+        self.assertEqual(store.patches, 2, "поехавший порядок поставлен заново")
+
+    def test_order_that_keeps_drifting_fails_the_locale(self):
+        store = FakeStore()
+        ids = m.upload_set(store, "set-1", self.images, 300, False, "fr-FR", finalize=False)
+        original_get_all = store.get_all
+        calls = {"n": 0}
+
+        def get_all(path):
+            rows = original_get_all(path)
+            if "assetDeliveryState" in path or store.patches == 0:
+                return rows
+            calls["n"] += 1
+            # после каждой сверки Apple снова переставляет набор
+            if calls["n"] % 2 == 0:
+                store.order = list(reversed(ids))
+                return [{"id": s} for s in store.order]
+            return rows
+
+        store.get_all = get_all
+        result = m.finalize_sets(store, [{"locale": "fr-FR", "set_id": "set-1", "ids": ids}], recheck_seconds=0, recheck_rounds=2)
+        self.assertIn("fr-FR", result["failed"])
+        self.assertEqual(result["done"], [])
+
+    def test_fresh_set_waits_before_order(self):
+        store = FakeStore(polls_to_finish=1)
+        ids = m.upload_set(store, "set-1", self.images, 300, False, "en-US", finalize=False)
+        clock = {"t": 1000.0}
+        real_time = m.time.time
+        m.time.time = lambda: clock["t"]
+        patched_at = []
+        real_request = store.request
+
+        def request(method, path, **kwargs):
+            if path.endswith("/relationships/appScreenshots"):
+                patched_at.append(clock["t"])
+            return real_request(method, path, **kwargs)
+
+        def sleep(seconds):
+            clock["t"] += seconds
+
+        store.request = request
+        m.time.sleep = sleep
+        try:
+            m.finalize_sets(store, [{"locale": "en-US", "set_id": "set-1", "ids": ids, "at": 1000.0}], poll_seconds=10, recheck_seconds=0)
+        finally:
+            m.time.time = real_time
+            m.time.sleep = lambda _seconds: None
+        self.assertGreaterEqual(patched_at[0] - 1000.0, m.SETTLE_SECONDS)
+        self.assertEqual(store.order, ids)
+
     def test_manifest_roundtrip(self):
         path = Path(self.dir.name) / "manifest.jsonl"
         m.append_manifest(path, [{"locale": "en-US", "set_id": "s1", "ids": ["a"]}])
