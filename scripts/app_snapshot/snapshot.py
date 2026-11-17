@@ -280,7 +280,8 @@ class SectionError(RuntimeError):
 
 
 # Причины, которые консоль показывает словами: timeout — Apple не ответил вовремя,
-# rate — упёрлись в лимит запросов, auth — ключ API не пускает, notfound — Apple
+# rate — упёрлись в лимит запросов, agreement — у аккаунта истекло соглашение
+# с Apple (принимает владелец в ASC → Business), auth — ключ API не пускает, notfound — Apple
 # не нашёл приложение или версию, apple — сбой на стороне Apple, other — прочее.
 def kind_of(error: BaseException) -> str:
     if isinstance(error, SectionError):
@@ -290,6 +291,8 @@ def kind_of(error: BaseException) -> str:
         return "timeout"
     if " 429" in text or "rate limit" in text:
         return "rate"
+    if "agreement" in text:
+        return "agreement"
     if " 401" in text or " 403" in text or "not authorized" in text or "forbidden" in text:
         return "auth"
     if " 404" in text or "not found" in text:
@@ -300,7 +303,19 @@ def kind_of(error: BaseException) -> str:
 
 
 def short(error: BaseException) -> str:
-    text = str(error).strip().splitlines()[0] if str(error).strip() else type(error).__name__
+    full = str(error).strip()
+    if not full:
+        return type(error).__name__
+    text = full.splitlines()[0]
+    # Ответ Apple — JSON на несколько строк; первая строка кончается на «{».
+    # Вместо обрывка — код и заголовок ошибки Apple.
+    at = full.find("{")
+    if at != -1:
+        try:
+            first = json.loads(full[at:]).get("errors", [{}])[0]
+            text = f"{full[:at].strip()} {first.get('code', '')}: {first.get('title', '')}".strip()
+        except (ValueError, AttributeError, IndexError, TypeError):
+            pass
     return text[:300]
 
 
